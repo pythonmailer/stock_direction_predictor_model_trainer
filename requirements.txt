@@ -10,3 +10,7 @@ joblib
 tqdm
 matplotlib
 jupyter
+streamlit
+plotly
+mlflow
+dagshub
