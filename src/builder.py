@@ -124,12 +124,12 @@ def build_model(model_type: Literal["lstm", "transformer", "rf", "xgboost"], fea
     hp.update(kwargs)
     hp["model_type"] = model_type
 
-    feature_cols = hp.get("feature_cols")
+    feature_cols = feature_cols
 
     if model_type in ["lstm", "transformer"]:
-        if hp.get("d_in") is not None:
+        if hp.get("d_in"):
             pass
-        elif feature_cols is not None:
+        elif feature_cols:
             hp["d_in"] = len(feature_cols)
         else:
             raise ValueError(f"For {model_type}, you must provide 'feature_cols' or 'd_in'.")    

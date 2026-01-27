@@ -2,50 +2,68 @@ import logging
 import os
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, date
 
-LOG_DIR = "logs"
+def setup_logging(log_dir="logs"):
+    """
+    Configures the ROOT logger. 
+    Run this exactly once at the start of your main script.
+    """
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)
+    # Generate filename once
+    session_filename = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    log_path = os.path.join(log_dir, session_filename)
 
-SESSION_LOG_FILE = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
-SESSION_LOG_PATH = os.path.join(LOG_DIR, SESSION_LOG_FILE)
+    # Get the Root Logger (no name provided)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
 
+    # Clean up any existing handlers (prevents double printing if re-run in notebooks)
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+
+    # Create Formatters
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Handler 1: Console
+    c_handler = logging.StreamHandler(sys.stdout)
+    c_handler.setFormatter(formatter)
+    root_logger.addHandler(c_handler)
+
+    # Handler 2: File
+    f_handler = logging.FileHandler(log_path, mode='a')
+    f_handler.setFormatter(formatter)
+    root_logger.addHandler(f_handler)
+    
+    # Log that we started (so we know which file is the main one)
+    root_logger.info(f"Logging setup complete. Saving to: {log_path}")
+    
+    return log_path
+
+# 2. Define the Accessor Function (Call this everywhere else)
 def get_logger(name):
     """
-    Creates a logger instance that writes to both:
-      1. Console (stdout)
-      2. File (The shared SESSION_LOG_FILE)
+    Just returns a logger. It assumes setup_logging() was called in main.
     """
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-
-    if logger.hasHandlers():
-        return logger
-
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    file_handler = logging.FileHandler(SESSION_LOG_PATH)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
+    # Simply return the logger. It will inherit handlers from the Root Logger.
+    return logging.getLogger(name)
 
 logger = get_logger(__name__)
 
 
 def save_json(path, data):
+
+    def default_converter(o):
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        return str(o)
+    
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'w') as f:
-            json.dump(data, f, indent=4)
+            json.dump(data, f, indent=4, default=default_converter)
         logger.info(f"JSON saved to {path}")
     except Exception as e:
         logger.error(f"Failed to save JSON: {e}")

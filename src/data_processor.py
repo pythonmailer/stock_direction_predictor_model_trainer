@@ -1,6 +1,7 @@
 import os
 import torch
 import random
+import mlflow
 import numpy as np
 import polars as pl
 from datetime import datetime
@@ -13,12 +14,10 @@ class DataProcessor:
     def __init__(self, mode="train"):
         self.logger = get_logger(__name__)
 
-        self.test_mode = False
-        if mode != "train":
-            self.test_mode = True
+        self.mode = mode
 
         self.full_path = None
-        self.init_cols = ['Stock ID', 'datetime', 'close', 'volume', 'high', 'low', 'open']
+        self.req_cols = ['Stock ID', 'datetime', 'close', 'volume', 'high', 'low', 'open']
         self.stocks = None
 
         self.feature_cols = None
@@ -40,6 +39,19 @@ class DataProcessor:
     # ==========================================
     # 1. Data Loading & Feature Engineering
     # ==========================================
+
+    def get_all_stocks(self, data_filename: str):
+        """
+        Returns a list of all stock IDs in the dataset.
+        """
+        try:
+            q = pl.scan_parquet(os.path.join("data", data_filename))
+        except FileNotFoundError:
+            self.logger.error(f"❌ File not found: {self.full_path}")
+            raise
+
+        return q.select("Stock ID").unique().collect().to_series().to_list()
+
     def load_data(self, data_filename: str, stocks=None):
         """
         Loads data and filters for specific stocks.
@@ -58,7 +70,7 @@ class DataProcessor:
             raise
 
         if isinstance(stocks, int):
-            stock_list = q.select("Stock ID").unique().collect().to_series().to_list()
+            stock_list = self.get_all_stocks(data_filename)
             self.stocks = random.sample(stock_list, stocks)
             q = q.filter(pl.col("Stock ID").is_in(self.stocks))
 
@@ -66,8 +78,11 @@ class DataProcessor:
             self.stocks = stocks
             q = q.filter(pl.col("Stock ID").is_in(self.stocks))
 
-        elif self.stocks is None:
-            self.stocks = q.select("Stock ID").unique().collect().to_series().to_list()
+        elif self.mode == "train":
+            self.stocks = self.get_all_stocks(data_filename)
+
+        elif self.mode != "train" and self.stocks:
+            q = q.filter(pl.col("Stock ID").is_in(self.stocks))
 
         else:
             self.logger.error("❌ Invalid input type. Must be an int or a list.")
@@ -75,8 +90,8 @@ class DataProcessor:
 
         df = q.collect()
 
-        if not all(c in df.columns for c in self.init_cols):
-            raise ValueError(f"Missing required columns: {self.init_cols}")
+        if not all(c in df.columns for c in self.req_cols):
+            raise ValueError(f"Missing required columns: {self.req_cols}")
 
         cols_to_cast = ['close', 'high', 'low', 'open', 'volume']
 
@@ -233,9 +248,9 @@ class DataProcessor:
             self.feature_cols = [f for f in features_cols if f in df.columns]
             
             # Combine without duplicates
-            final_cols = list(dict.fromkeys(self.init_cols + self.feature_cols))
+            final_cols = list(dict.fromkeys(self.req_cols + self.feature_cols))
             
-            self.df = self.df.select(final_cols).drop_nulls()
+            self.df = df.select(final_cols).drop_nulls()
 
             self.logger.info(f"Added Indicators successfully. Shape: {self.df.shape}")
 
@@ -248,18 +263,18 @@ class DataProcessor:
     # ==========================================
     # 2. Target Creation
     # ==========================================
-    def create_binary_target(self, profit_pct=0.03, stop_pct=0.015, time_horizon=5):
+    def create_binary_target(self, df, profit_pct=0.03, stop_pct=0.015, time_horizon=5):
         self.logger.info("Creating Target...")
 
-        df = create_target(self.df, profit_pct, stop_pct, time_horizon)
+        df = self.create_triple_barrier_target(df, profit_pct, stop_pct, time_horizon)
 
         self.df = df.with_columns((pl.col("target") == 1).cast(pl.Int8).alias("target"))
 
         return self.df
 
-    def create_triple_barrier_target(self, profit_pct=0.03, stop_pct=0.015, time_horizon=5):
+    def create_triple_barrier_target(self, df, profit_pct=0.03, stop_pct=0.015, time_horizon=5):
         self.logger.info("Creating Triple Barrier Target...")
-        df = self.df.sort(["Stock ID", "datetime"])
+        df = df.sort(["Stock ID", "datetime"])
 
         self.profit_pct = profit_pct
         self.stop_pct = stop_pct
@@ -378,7 +393,7 @@ class DataProcessor:
         Unified window creation for both Train and Test.
         mode: 'train' (returns X, y) or 'test' (returns X)
         """
-        self.logger.info(f"Generating sliding windows (Mode: {mode})...")
+        self.logger.info(f"Generating sliding windows (Mode: {self.mode})...")
         
         # Ensure data is sorted
         df = df.sort(["Stock ID", "datetime"])
@@ -395,7 +410,7 @@ class DataProcessor:
             windows = sliding_window_view(data, window_shape=seq_len, axis=0)
             windows = np.moveaxis(windows, 2, 1)
 
-            if mode == "train":
+            if self.mode == "train":
                 try:
                     targets = group.select("target").to_numpy().flatten()
                 except Exception as e:
@@ -424,51 +439,41 @@ class DataProcessor:
 
         base_path = "artifacts/data"
 
-        if self.mode != "train":
-            # File paths check
-            metadata_path = os.path.join(base_path, "metadata", "test")
-            os.makedirs(metadata_path, exist_ok=True)
+        if self.mode == "test":
+
             test_data_path = os.path.join(base_path, "test")
             os.makedirs(test_data_path, exist_ok=True)
 
-            # Save Test data
             test_data_filename = f"test_{run_id}.parquet"
             test_data_full_path = os.path.join(test_data_path, test_data_filename)
             self.df.write_parquet(test_data_full_path)
             self.logger.info(f"Test Data Saved to {test_data_full_path}")
 
-            # Create metadata
+            mlflow.log_params({
+                "data_shape": self.df.shape,
+            })
+
             metadata = {
                 "run_id": run_id,
-                "created_at": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-
-                "data_shape": self.data.shape,
-                "raw_test_data_path": self.full_path,
+                "raw_data_path": self.full_path,
                 "stocks": self.stocks,
-                "train_metadata_path": self.metadata_path,
                 "test_data_path": test_data_full_path
             }
 
-            # Save metadata
-            metadata_filename = f"test_metadata_{run_id}.json"
-            metadata_full_path = os.path.join(metadata_path, metadata_filename)
-            save_json(metadata_full_path, metadata)
-            self.logger.info(f"Test Metadata Saved to {metadata_full_path}")
+            mlflow.log_dict(metadata, "test_metadata.json")
 
-            return metadata_full_path
+            return
 
         # Define file names
         val_data_name = f"val_{run_id}.parquet"
         train_data_name = f"train_{run_id}.parquet"
         scaler_file_name = f"scaler_{run_id}.parquet"
-        metadata_file_name = f"train_metadata_{run_id}.json"
 
         # Define paths
         paths = {
             "train": os.path.join(base_path, "train"),
             "val": os.path.join(base_path, "validation"),
             "scaler": os.path.join(base_path, "scalers"),
-            "metadata": os.path.join(base_path,"metadata", "train")
         }
 
         # Create directories
@@ -484,7 +489,7 @@ class DataProcessor:
         self.val.write_parquet(val_data_full_path)
         self.logger.info(f"Validation Data Saved to {val_data_full_path}")
 
-        if scaler is not None:
+        if self.scaler is not None:
             scaler_full_path = os.path.join(paths["scaler"], scaler_file_name)
             self.scaler.write_parquet(scaler_full_path)
             self.logger.info(f"Scaler Saved to {scaler_full_path}")
@@ -492,53 +497,72 @@ class DataProcessor:
             scaler_full_path = None
 
         # Save metadata
-        metadata_full_path = os.path.join(paths["metadata"], metadata_file_name)
-        metadata = {
-            "run_id": run_id,
-            "created_at": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
 
-            "split_date": self.split_date,
-            "feature_cols": self.feature_cols,
+        mlflow.log_params({
+            "split_date": self.split_date, 
             "train_shape": self.train.shape,
             "val_shape": self.val.shape,
-            "init_cols": self.init_cols,
-            "stocks": self.stocks,
             "seq_len": self.seq_len,
             "time_horizon": self.time_horizon,
             "profit_pct": self.profit_pct,
             "stop_pct": self.stop_pct,
-            
-            "paths": {
-                "train_data_path": train_data_full_path,
-                "val_data_path": val_data_full_path,
-                "scaler_path": scaler_full_path,
-                "raw_data_used": self.full_path,
-            }
+        })
+
+        metadata = {
+            "run_id": run_id,
+            "feature_cols": self.feature_cols,
+            "stocks": self.stocks,
+            "train_data_path": train_data_full_path,
+            "val_data_path": val_data_full_path,
+            "scaler_path": scaler_full_path,
+            "raw_data_path": self.full_path,
         }
 
-        save_json(metadata_full_path, metadata)
+        mlflow.log_dict(metadata, "train_metadata.json")
 
-        return metadata_full_path
+        return 
     
-    def load_metadata(self, path):
-        metadata = load_json(path)
-        self.metadata_path = path
+    def load_config(self, train_data_run_id):
+        train_data_run = mlflow.get_run(train_data_run_id)
 
-        if self.mode == "train":
-            self.val = pl.read_parquet(metadata["paths"]["val_data_path"])
-            self.train = pl.read_parquet(metadata["paths"]["train_data_path"])
+        config = train_data_run.data.params
 
-        self.scaler = pl.read_parquet(metadata["paths"]["scaler_path"])
-        self.split_date = metadata["split_date"]
-        self.seq_len = metadata["seq_len"]
-        self.time_horizon = metadata["time_horizon"]
-        self.profit_pct = metadata["profit_pct"]
-        self.stop_pct = metadata["stop_pct"]
+        self.seq_len = config["seq_len"]
+
+        artifact_path = "train_metadata.json"
+        artifact_uri = f"runs:/{train_data_run_id}/{artifact_path}"
+        metadata = mlflow.artifacts.load_dict(artifact_uri)
+
+        try:
+            self.scaler = pl.read_parquet(metadata["scaler_path"])
+        except FileNotFoundError:
+            self.logger.error(f"Scaler file not present at {metadata['scaler_path']}")
+            raise
+        
         self.feature_cols = metadata["feature_cols"]
-        self.init_cols = metadata["init_cols"]
         self.stocks = metadata["stocks"]
 
-        return metadata
+        if self.mode == "train":
+            self.time_horizon = config["time_horizon"]
+            self.profit_pct = config["profit_pct"]
+            self.stop_pct = config["stop_pct"]
+            self.split_date = config["split_date"]
+            self.train_shape = config["train_shape"]
+            self.val_shape = config["val_shape"]
+
+            try:
+                self.train = pl.read_parquet(metadata["train_data_path"])
+            except FileNotFoundError:
+                self.logger.error(f"Train Data file not present at {metadata["train_data_path"]}")
+                raise
+            
+            try:
+                self.val = pl.read_parquet(metadata["val_data_path"])
+            except FileNotFoundError:
+                self.logger.error(f"Validation Data file not present at {metadata["val_data_path"]}")
+                raise
+
+        return config
 
     def reshape_for_ml(self, X: np.ndarray) -> np.ndarray:
         """

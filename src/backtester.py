@@ -4,26 +4,26 @@ from .data_processor import DataProcessor
 from torch.utils.data import DataLoader, TensorDataset
 from .builder import build_model
 import torch
+import os
+import mlflow
+import numpy as np
 from datetime import datetime
 import torch.nn as nn
 import joblib
 
 class Backtester:
-    def __init__(self, report_path: str):
+    def __init__(self, training_run):
 
         self.logger = get_logger(__name__)
         self.run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-        self.train_report_path = report_path
-        self.report = load_json(self.train_report_path)
+        self.training_run = training_run
+        self.report = training_run.data.params
 
         self.dp = DataProcessor(mode="test")
-        self.metadata = self.dp.load_metadata(self.report["metadata_path"])
+        self.config = self.dp.load_config(training_run.data.tags['train_data_run_id'])
 
         self.model_type = self.report["model_type"].lower()
-        self.seq_len = self.metadata["seq_len"]
-        self.model_path = self.report["model"]["training_result"]["model_path"]
-        self.feature_cols = self.metadata["features"]
 
         self.device = torch.device("cpu")
         self.model = None
@@ -38,34 +38,36 @@ class Backtester:
         self.investment_per_stock = None
         self.backtest_results = None
 
-        self.df_pnl = None
+        self.df_pnl = pl.DataFrame()
 
-    def load_model(self):
-        self.logger.info(f"Loading {self.model_type} model from {self.model_path}...")
+    def load_model(self, training_run_id):
+        self.logger.info(f"Loading {self.model_type} model from Dagshub...")
         
         try:
-            if self.model_type in ["rf", "xgboost"]:
-                self.model = joblib.load(self.model_path)
+            # if self.model_type in ["rf", "xgboost"]:
+            #     self.model = joblib.load(self.model_path)
             
-            elif self.model_type in ["lstm", "transformer"]:
-                if torch.backends.mps.is_available():
-                    self.device = torch.device("mps")
-                elif torch.cuda.is_available():
-                    self.device = torch.device("cuda")
+            # elif self.model_type in ["lstm", "transformer"]:
+            #     if torch.backends.mps.is_available():
+            #         self.device = torch.device("mps")
+            #     elif torch.cuda.is_available():
+            #         self.device = torch.device("cuda")
 
-                hp = self.report['model']['hyperparameters']
+            #     hp = self.report['model']['hyperparameters']
 
-                hp_args = hp.copy()
-                hp_args.pop("model_type", None) 
-                self.model, _ = build_model(model_type=self.model_type, **hp_args)
+            #     hp_args = hp.copy()
+            #     hp_args.pop("model_type", None) 
+            #     self.model, _ = build_model(model_type=self.model_type, **hp_args)
 
-                state_dict = torch.load(self.model_path, map_location="cpu")
-                self.model.load_state_dict(state_dict)
+            #     state_dict = torch.load(self.model_path, map_location="cpu")
+            #     self.model.load_state_dict(state_dict)
                 
-                self.model.to(self.device)
+            #     self.model.to(self.device)
                 
-            self.logger.info(f"{self.model_type} model loaded successfully on {self.device}")
-            return self.model
+            # self.logger.info(f"{self.model_type} model loaded successfully on {self.device}")
+            # return self.model
+
+            self.model = mlflow.pyfunc.load_model(f"runs:/{training_run_id}/model")
 
         except Exception as e:
             msg = f"Error while loading {self.model_type} model: {str(e)}"
@@ -74,22 +76,22 @@ class Backtester:
 
     def prepare_data(self, test_data_path: str):
         self.data = self.dp.load_data(test_data_path)
-        self.data, features_cols = self.dp.calculate_indicators()
-        self.test_metadata_path = self.dp.save_data(self.run_id)
+        self.data, feature_cols = self.dp.calculate_indicators()
+        self.dp.save_data(self.run_id)
         self.transformed_data = self.dp.transform_scaler(self.data)
-        final_data = self.dp.create_windows(self.transformed_data, self.seq_len)
+        final_data = self.dp.create_windows(self.transformed_data, feature_cols, self.seq_len)
 
         if self.model_type == "rf" or self.model_type == "xgboost":
-            return dp.reshape_for_ml(final_data), self.feature_cols
+            return dp.reshape_for_ml(final_data), feature_cols
         else:
             tensor_data = torch.from_numpy(final_data).float()
             dataset = TensorDataset(tensor_data)
-            return DataLoader(dataset, batch_size=128, shuffle=False), self.feature_cols
+            return DataLoader(dataset, batch_size=128, shuffle=False), feature_cols
 
-    def make_predictions(self, test_data, threshold=0.55):
-        self.threshold = threshold
+    def make_predictions(self, test_data, threshhold=0.55):
+        self.threshhold = threshhold
         if self.model_type in ["rf", "xgboost"]:
-            return self._make_predictions_ml(test_data, threshold)
+            return self._make_predictions_ml(test_data, threshhold)
 
         probs_list = []
         self.model.eval()
@@ -102,12 +104,12 @@ class Backtester:
                 probs_list.append(probs.cpu().numpy())
 
         probs_arr = np.concatenate(probs_list, axis=0).flatten()
-        predictions = (probs_arr >= threshold).astype(int)
+        predictions = (probs_arr >= threshhold).astype(int)
         
         self.logger.info(f"Inference complete. Generated {len(predictions)} predictions.")
         return self._get_predictions_df(probs_arr, predictions)
         
-    def _make_predictions_ml(self, X_2d_numpy, threshold=0.55):
+    def _make_predictions_ml(self, X_2d_numpy, threshhold=0.55):
         """
         Specific for Random Forest and XGBoost (Sklearn Wrappers)
         """
@@ -122,7 +124,7 @@ class Backtester:
             self.logger.warning("Model has no predict_proba, using predict instead.")
             probs_arr = self.model.predict(X_2d_numpy)
 
-        predictions = (probs_arr >= threshold).astype(int)
+        predictions = (probs_arr >= threshhold).astype(int)
 
         self.logger.info(f"Inference complete. Generated {len(predictions)} predictions.")
         return self._get_predictions_df(probs_arr, predictions)
@@ -175,7 +177,7 @@ class Backtester:
 
         brokerage_expr = (
             pl.when(pl.col("prediction") == 1)
-            .then(investment * brokerage) 
+            .then(investment_per_stock * brokerage) 
             .otherwise(0.0)
         ).alias("brokerage_cost")
 
@@ -183,7 +185,7 @@ class Backtester:
             pnl_expr,
             brokerage_expr
         ]).with_columns([
-            (pl.col("pnl_pct") * investment).alias("gross_pnl")
+            (pl.col("pnl_pct") * investment_per_stock).alias("gross_pnl")
         ]).with_columns([
             (pl.col("gross_pnl") - pl.col("brokerage_cost")).alias("net_pnl")
         ])
@@ -210,30 +212,17 @@ class Backtester:
         self.df_pnl.write_parquet(df_pnl_full_path)
         self.logger.info(f"Saved PnL Data to {df_pnl_full_path}")
 
-        backtest_reports_path = os.path.join("artifacts", "reports", "backtest")
-        os.makedirs(backtest_reports_path, exist_ok=True)
-        backtest_report_filename = f"{self.run_id}_{self.model_type}_backtest_report.json"
-        backtest_report_full_path = os.path.join(backtest_reports_path, backtest_report_filename)
-
-        self.backtest_report = {
-            "run_id": self.run_id,
-            "created_at": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-            "model_type": self.model_type,
-            "backtest_results": self.backtest_results,
+        mlflow.log_params({
             "time_horizon": self.time_horizon,
             "profit_pct": self.profit_pct,
             "brokerage": self.brokerage,
             "stop_pct": self.stop_pct,
             "investment_per_stock": self.investment_per_stock,
-            "paths": {
-                "df_pnl_path": df_pnl_full_path,
-                "test_metadata_path": self.test_metadata_path,
-                "train_report_path": self.train_report_path,
-            }
-        }
+            "threshhold": self.threshhold,
+            "model_type": self.model_type,
+            "df_pnl_path": df_pnl_full_path,
+        })
 
-        save_json(backtest_report_full_path, self.backtest_report)
-        self.logger.info(f"Saved Backtest Report to {backtest_report_full_path}")
+        mlflow.log_metrics(self.backtest_results)
 
-        return self.backtest_report
-        
+        return
