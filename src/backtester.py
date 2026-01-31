@@ -12,16 +12,19 @@ import torch.nn as nn
 import joblib
 
 class Backtester:
-    def __init__(self, training_run):
+    def __init__(self, training_run_id):
 
         self.logger = get_logger(__name__)
+        self.training_run_id = training_run_id
         self.run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-        self.training_run = training_run
-        self.report = training_run.data.params
+        self.training_run = mlflow.get_run(training_run_id)
+        self.model_id = self.training_run.outputs.model_outputs[0].model_id
+        self.report = self.training_run.data.params
+        
 
         self.dp = DataProcessor(mode="test")
-        self.config = self.dp.load_config(training_run.data.tags['train_data_run_id'])
+        self.config = self.dp.load_config(self.training_run.data.tags['train_data_run_id'])
 
         self.model_type = self.report["model_type"].lower()
 
@@ -40,7 +43,7 @@ class Backtester:
 
         self.df_pnl = pl.DataFrame()
 
-    def load_model(self, training_run_id):
+    def load_model(self):
         self.logger.info(f"Loading {self.model_type} model from Dagshub...")
         
         try:
@@ -67,7 +70,13 @@ class Backtester:
             # self.logger.info(f"{self.model_type} model loaded successfully on {self.device}")
             # return self.model
 
-            self.model = mlflow.pyfunc.load_model(f"runs:/{training_run_id}/model")
+            if self.model_type in ["lstm", "transformer"]:
+                self.model = mlflow.pytorch.load_model(f"models:/{self.model_id}")
+            elif self.model_type == "xgboost":
+                self.model = mlflow.xgboost.load_model(f"models:/{self.model_id}")
+            else:
+                self.model = mlflow.sklearn.load_model(f"models:/{self.model_id}")
+                
 
         except Exception as e:
             msg = f"Error while loading {self.model_type} model: {str(e)}"
@@ -79,7 +88,7 @@ class Backtester:
         self.data, feature_cols = self.dp.calculate_indicators()
         self.dp.save_data(self.run_id)
         self.transformed_data = self.dp.transform_scaler(self.data)
-        final_data = self.dp.create_windows(self.transformed_data, feature_cols, self.seq_len)
+        final_data = self.dp.create_windows(self.transformed_data, feature_cols)
 
         if self.model_type == "rf" or self.model_type == "xgboost":
             return dp.reshape_for_ml(final_data), feature_cols
@@ -133,7 +142,7 @@ class Backtester:
         self.logger.info("Aligning predictions with original data...")
 
         aligned_df = self.data.group_by("Stock ID", maintain_order=True).map_groups(
-            lambda df: df.slice(self.seq_len - 1, len(df)))
+            lambda df: df.slice(self.dp.seq_len - 1, len(df)))
 
         if len(aligned_df) != len(predictions) or len(aligned_df) != len(probs_arr):
             self.logger.error(f"Mismatch! Aligned Data: {len(aligned_df)}, Preds: {len(predictions)}, Probs: {len(probs_arr)}")
@@ -220,9 +229,12 @@ class Backtester:
             "investment_per_stock": self.investment_per_stock,
             "threshhold": self.threshhold,
             "model_type": self.model_type,
-            "df_pnl_path": df_pnl_full_path,
         })
 
         mlflow.log_metrics(self.backtest_results)
+
+        metadata = {"df_pnl_path": df_pnl_full_path,}
+
+        mlflow.log_dict(metadata, "test_metadata.json")
 
         return

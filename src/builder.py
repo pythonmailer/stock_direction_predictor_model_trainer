@@ -22,7 +22,7 @@ DEFAULT_CONFIGS = {
         "d_out": 1,
         "max_len": 100,
         "dropout": 0.1,
-        "pos_weight_val": None
+        "ratio_val": None
     },
     "xgboost": {
         "n_estimators": 500,
@@ -79,7 +79,7 @@ def build_model(
     d_out: int = 1,
     max_len: int = 100,
     dropout: float = 0.1,
-    pos_weight_val: Optional[float] = None
+    ratio_val: Optional[float] = None
 ) -> Tuple[TransformerEncoder, Dict[str, Any]]: ...
 
 # Signature for XGBoost
@@ -151,7 +151,7 @@ def build_model(model_type: Literal["lstm", "transformer", "rf", "xgboost"], fea
             d_out=hp["d_out"],
             max_len=hp["max_len"],
             dropout=hp["dropout"],
-            pos_weight_val=hp["pos_weight_val"]
+            ratio_val=hp["ratio_val"]
         )
 
     elif model_type == "rf":

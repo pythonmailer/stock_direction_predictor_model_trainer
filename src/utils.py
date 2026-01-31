@@ -1,7 +1,9 @@
 import logging
 import os
 import sys
+from pathlib import Path
 import json
+import polars as pl
 from datetime import datetime, date
 
 def setup_logging(log_dir="logs"):
@@ -93,4 +95,15 @@ class EarlyStopper:
             self.counter += 1
             if self.counter >= self.patience:
                 return True
+        return False
+
+def get_files_in_dir(dir_path: str):
+    file_names = [f.name for f in Path(dir_path).iterdir() if f.is_file()]
+    return file_names
+
+def is_parquet_file(file_path: str):
+    try:
+        pl.read_parquet(file_path)
+        return True
+    except Exception:
         return False

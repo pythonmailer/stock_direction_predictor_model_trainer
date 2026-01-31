@@ -18,41 +18,31 @@ class DataProcessor:
 
         self.full_path = None
         self.req_cols = ['Stock ID', 'datetime', 'close', 'volume', 'high', 'low', 'open']
-        self.stocks = None
+        self.stocks = []
 
-        self.feature_cols = None
+        self.feature_cols = []
 
         self.time_horizon = None
         self.profit_pct = None
         self.stop_pct = None
+        self.train_ratio = None
 
-        self.split_date = None
         self.seq_len = None
+
+        self.train_pos_count = None
+        self.train_neg_count = None
+        self.val_pos_count = None
+        self.val_neg_count = None
         
         self.df = pl.DataFrame()
         self.val = pl.DataFrame()
         self.train = pl.DataFrame()
         self.scaler = pl.DataFrame()
 
-        self.metadata_path = None
-
     # ==========================================
     # 1. Data Loading & Feature Engineering
     # ==========================================
-
-    def get_all_stocks(self, data_filename: str):
-        """
-        Returns a list of all stock IDs in the dataset.
-        """
-        try:
-            q = pl.scan_parquet(os.path.join("data", data_filename))
-        except FileNotFoundError:
-            self.logger.error(f"❌ File not found: {self.full_path}")
-            raise
-
-        return q.select("Stock ID").unique().collect().to_series().to_list()
-
-    def load_data(self, data_filename: str, stocks=None):
+    def load_data(self, data_filename: str, n_stocks=1, stocks=None):
         """
         Loads data and filters for specific stocks.
         To filter stocks, pass a list of stock IDs.
@@ -69,25 +59,24 @@ class DataProcessor:
             self.logger.error(f"❌ File not found: {self.full_path}")
             raise
 
-        if isinstance(stocks, int):
-            stock_list = self.get_all_stocks(data_filename)
-            self.stocks = random.sample(stock_list, stocks)
-            q = q.filter(pl.col("Stock ID").is_in(self.stocks))
+        if len(stocks) >= n_stocks:
+            self.stocks = stocks[:n_stocks]
+        
+        if len(stocks) < n_stocks:
+            temp_stocks = self.get_all_stocks(data_filename)
 
-        elif isinstance(stocks, list):
-            self.stocks = stocks
-            q = q.filter(pl.col("Stock ID").is_in(self.stocks))
+            needed = n_stocks - len(stocks)
 
-        elif self.mode == "train":
-            self.stocks = self.get_all_stocks(data_filename)
+            available_pool = list(set(temp_stocks) - set(stocks))
 
-        elif self.mode != "train" and self.stocks:
-            q = q.filter(pl.col("Stock ID").is_in(self.stocks))
+            if len(available_pool) > needed:
+                extras = random.sample(available_pool, needed)
+            else:
+                extras = available_pool
+            
+            self.stocks = stocks + extras
 
-        else:
-            self.logger.error("❌ Invalid input type. Must be an int or a list.")
-            raise ValueError("Invalid input type. Must be an int or a list.")
-
+        q = q.filter(pl.col("Stock ID").is_in(self.stocks))
         df = q.collect()
 
         if not all(c in df.columns for c in self.req_cols):
@@ -99,15 +88,6 @@ class DataProcessor:
         
         print(f"Loaded {len(self.df)} rows.")
         return self.df
-
-    def all_features(self):
-        features = [
-            'rel_open', 'rel_high', 'rel_low', 'rel_close', 'rel_vol', 
-            'macd', 'atr', 'stoch', 
-            'roc_5', 'roc_10', 
-            'rsi', 'bb_width', 'dist_sma20'
-        ]
-        return features
 
     def calculate_indicators(self, features_cols: list[str] = None) -> pl.DataFrame:
         """
@@ -317,38 +297,31 @@ class DataProcessor:
     # ==========================================
     # 3. Splitting & Scaling (Corrected)
     # ==========================================
-    def time_based_split(self, seq_len=30, val_ratio=0.2):
+    def time_based_split(self, seq_len=30, train_ratio=0.8):
         self.logger.info("Performing Time-Based Split...")
+        self.train_ratio = train_ratio
 
         dates = self.df.select("datetime").unique().sort("datetime")["datetime"].to_list()
-        split_idx = int(len(dates) * (1 - val_ratio))
-        self.split_date = dates[split_idx]
+        split_idx = int(len(dates) * train_ratio)
+
+        split_date = dates[split_idx]
         self.seq_len = seq_len
         
-        self.logger.info(f"Split Date: {self.split_date}")
+        self.logger.info(f"Split Date: {split_date}")
         
-        self.train = self.df.filter(pl.col("datetime") < self.split_date)
+        self.train = self.df.filter(pl.col("datetime") < split_date)
         
         # Include buffer for validation to allow windowing at the boundary
         buffer_date = dates[max(0, split_idx - seq_len)]
         self.val = self.df.filter(pl.col("datetime") >= buffer_date)
+
+        self.train_pos_count = self.train["target"].sum()  # Sum of 1s = count of 1s
+        self.train_neg_count = self.train.height - self.train_pos_count
+
+        self.val_pos_count = self.val["target"].sum()
+        self.val_neg_count = self.val.height - self.val_pos_count
         
-        return self.train, self.val, self.split_date
-
-    def transform_scaler(self, df_pl: pl.DataFrame):
-
-        self.logger.info("Transforming Data using scaler...")
-
-        df = df_pl.join(self.scaler, on="Stock ID", how="left")
-        exprs = []
-        for c in self.feature_cols:
-            # (Val - Median) / IQR
-            scaled = (pl.col(c) - pl.col(f"{c}_med")) / (pl.col(f"{c}_iqr") + 1e-9)
-            exprs.append(scaled.clip(-3.0, 3.0).alias(c))
-            
-        # Select only original columns + scaled features (drop stat cols)
-        keep = [col for col in df.columns if "_med" not in col and "_iqr" not in col]
-        return df.with_columns(exprs).select(keep)
+        return self.train, self.val
 
     def fit_scaler(self, df, features):
         """
@@ -365,6 +338,21 @@ class DataProcessor:
         ])
         
         return self.scaler
+
+    def transform_scaler(self, df_pl: pl.DataFrame):
+
+        self.logger.info("Transforming Data using scaler...")
+
+        df = df_pl.join(self.scaler, on="Stock ID", how="left")
+        exprs = []
+        for c in self.feature_cols:
+            # (Val - Median) / IQR
+            scaled = (pl.col(c) - pl.col(f"{c}_med")) / (pl.col(f"{c}_iqr") + 1e-9)
+            exprs.append(scaled.clip(-3.0, 3.0).alias(c))
+            
+        # Select only original columns + scaled features (drop stat cols)
+        keep = [col for col in df.columns if "_med" not in col and "_iqr" not in col]
+        return df.with_columns(exprs).select(keep)
 
     def inverse_transform(self, df_scaled: pl.DataFrame, features: list[str]):
         """
@@ -388,13 +376,15 @@ class DataProcessor:
     # ==========================================
     # 4. Windowing & Loader Creation
     # ==========================================
-    def create_windows(self, df, features, seq_len=30):
+    def create_windows(self, df, features, seq_len=None):
         """
         Unified window creation for both Train and Test.
         mode: 'train' (returns X, y) or 'test' (returns X)
         """
         self.logger.info(f"Generating sliding windows (Mode: {self.mode})...")
         
+        if seq_len is None:
+            seq_len = self.seq_len
         # Ensure data is sorted
         df = df.sort(["Stock ID", "datetime"])
         
@@ -449,9 +439,11 @@ class DataProcessor:
             self.df.write_parquet(test_data_full_path)
             self.logger.info(f"Test Data Saved to {test_data_full_path}")
 
-            mlflow.log_params({
+            config = {
                 "data_shape": self.df.shape,
-            })
+            }
+
+            mlflow.log_params(config)
 
             metadata = {
                 "run_id": run_id,
@@ -462,7 +454,7 @@ class DataProcessor:
 
             mlflow.log_dict(metadata, "test_metadata.json")
 
-            return
+            return config
 
         # Define file names
         val_data_name = f"val_{run_id}.parquet"
@@ -496,17 +488,25 @@ class DataProcessor:
         else:
             scaler_full_path = None
 
-        # Save metadata
-
-        mlflow.log_params({
-            "split_date": self.split_date, 
+        config = {
             "train_shape": self.train.shape,
             "val_shape": self.val.shape,
             "seq_len": self.seq_len,
+            "n_stocks": len(self.stocks),
+            "train_ratio": self.train_ratio,
             "time_horizon": self.time_horizon,
             "profit_pct": self.profit_pct,
             "stop_pct": self.stop_pct,
-        })
+            "raw_data_path": self.full_path,
+            "train_pos_count": self.train_pos_count,
+            "train_neg_count": self.train_neg_count,
+            "val_pos_count": self.val_pos_count,
+            "val_neg_count": self.val_neg_count,
+        }
+
+        mlflow.log_params(config)
+
+        # Save metadata
 
         metadata = {
             "run_id": run_id,
@@ -515,19 +515,17 @@ class DataProcessor:
             "train_data_path": train_data_full_path,
             "val_data_path": val_data_full_path,
             "scaler_path": scaler_full_path,
-            "raw_data_path": self.full_path,
         }
 
         mlflow.log_dict(metadata, "train_metadata.json")
 
-        return 
+        return config
     
     def load_config(self, train_data_run_id):
         train_data_run = mlflow.get_run(train_data_run_id)
-
         config = train_data_run.data.params
 
-        self.seq_len = config["seq_len"]
+        self.seq_len = int(config["seq_len"])
 
         artifact_path = "train_metadata.json"
         artifact_uri = f"runs:/{train_data_run_id}/{artifact_path}"
@@ -538,28 +536,32 @@ class DataProcessor:
         except FileNotFoundError:
             self.logger.error(f"Scaler file not present at {metadata['scaler_path']}")
             raise
-        
+
         self.feature_cols = metadata["feature_cols"]
         self.stocks = metadata["stocks"]
 
         if self.mode == "train":
-            self.time_horizon = config["time_horizon"]
-            self.profit_pct = config["profit_pct"]
-            self.stop_pct = config["stop_pct"]
-            self.split_date = config["split_date"]
+            self.time_horizon = int(config["time_horizon"])
+            self.profit_pct = float(config["profit_pct"])
+            self.stop_pct = float(config["stop_pct"])
             self.train_shape = config["train_shape"]
             self.val_shape = config["val_shape"]
+            self.train_pos_count = config["train_pos_count"]
+            self.train_neg_count = config["train_neg_count"]
+            self.val_pos_count = config["val_pos_count"]
+            self.val_neg_count = config["val_neg_count"]
+            self.full_path = config["raw_data_path"]
 
             try:
                 self.train = pl.read_parquet(metadata["train_data_path"])
             except FileNotFoundError:
-                self.logger.error(f"Train Data file not present at {metadata["train_data_path"]}")
+                self.logger.error(f"Train Data file not present at {metadata['train_data_path']}")
                 raise
             
             try:
                 self.val = pl.read_parquet(metadata["val_data_path"])
             except FileNotFoundError:
-                self.logger.error(f"Validation Data file not present at {metadata["val_data_path"]}")
+                self.logger.error(f"Validation Data file not present at {metadata['val_data_path']}")
                 raise
 
         return config
@@ -584,7 +586,7 @@ class DataProcessor:
         n_samples, seq_len, n_feats = X.shape
         return X.reshape((n_samples, seq_len * n_feats))
 
-    def to_loaders(self, X_train, y_train, X_val, y_val, batch_size=32, num_workers=2):
+    def to_loaders(self, X_train, y_train, X_val, y_val, batch_size=32, num_workers=0):
         self.logger.info("Converting to PyTorch DataLoaders...")
         
         train_ds = TensorDataset(torch.from_numpy(X_train).float(), torch.from_numpy(y_train).float())
@@ -594,3 +596,58 @@ class DataProcessor:
             DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers),
             DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
         )
+
+    def all_features(self):
+        features = [
+            'rel_open', 'rel_high', 'rel_low', 'rel_close', 'rel_vol', 
+            'macd', 'atr', 'stoch', 
+            'roc_5', 'roc_10', 
+            'rsi', 'bb_width', 'dist_sma20'
+        ]
+        return features
+
+    def get_all_stocks(self, data_filename: str):
+        """
+        Returns a list of all stock IDs in the dataset.
+        """
+        try:
+            q = pl.scan_parquet(os.path.join("data", data_filename))
+        except FileNotFoundError:
+            self.logger.error(f"❌ File not found: {self.full_path}")
+            raise
+
+        return q.select("Stock ID").unique().collect().to_series().to_list()
+
+    def get_all_dates(self, data_filename: str):
+        """
+        Returns a list of all dates in the dataset.
+        """
+        try:
+            q = pl.scan_parquet(os.path.join("data", data_filename))
+        except FileNotFoundError:
+            self.logger.error(f"❌ File not found: {self.full_path}")
+            raise
+
+        return q.select("datetime").unique().collect().to_series().to_list()
+
+    def exists_config(self, config, author_id, purpose):
+
+        full_raw_file_path = os.path.join("data", config['raw_file_name'])
+
+        query = f"tags.author_id = '{author_id}' AND tags.purpose = '{purpose}' AND \
+            params.seq_len = '{config['seq_len']}' AND params.time_horizon = '{config['time_horizon']}' AND \
+                params.profit_pct = '{config['profit_pct']}' AND params.stop_pct = '{config['stop_pct']}' AND \
+                    params.raw_data_path = '{full_raw_file_path}' AND params.train_ratio = '{config['train_ratio']}' AND \
+                        params.n_stocks = '{config['n_stocks']}'"
+
+        runs = mlflow.search_runs(filter_string=query, output_format="list")
+
+        if len(runs) > 0:
+            return runs[0].info.run_id
+        else:
+            return None
+
+    def has_nan(self):
+        if self.df.height == 0 or self.df.width == 0:
+            return False
+        return self.df.select(pl.all().null_count().sum()).sum_horizontal().item() > 0        

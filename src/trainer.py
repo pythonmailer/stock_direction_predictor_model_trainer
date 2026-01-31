@@ -40,7 +40,7 @@ class DeepLearningTrainer:
         # Early Stopper
         self.stopper = EarlyStopper(patience=self.patience)
 
-    def train(self, train_loader, val_loader) -> Tuple[torch.nn.Module, Dict]:
+    def train(self, train_loader, val_loader, callback=None) -> Tuple[torch.nn.Module, Dict]:
         self.logger.info(f"Starting training for {self.model_type}...")
         
         best_prec = 0.0
@@ -56,9 +56,9 @@ class DeepLearningTrainer:
             train_loss, train_prec, train_rec, train_f1, train_acc, train_auc = self._train_epoch(train_loader)
             val_loss, val_prec, val_rec, val_f1, val_acc, val_auc = self._validate(val_loader)
             
-            self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Loss: {val_loss:.4f} | Prec: {val_prec:.2%} | Rec: {val_rec:.2%} | F1: {val_f1:.2%} | Acc: {val_acc:.2%} | AUC: {val_auc:.2%}")
+            self.logger.info(f"Epoch {epoch+1}/{self.epochs} | Loss: {str(val_loss)} | Prec: {val_prec:.2%} | Rec: {val_rec:.2%} | F1: {val_f1:.2%} | Acc: {val_acc:.2%} | AUC: {val_auc:.2%}")
 
-            mlflow.log_metrics({
+            metrics = {
                 "train_loss": train_loss,
                 "train_prec": train_prec,
                 "train_rec": train_rec,
@@ -71,7 +71,12 @@ class DeepLearningTrainer:
                 "val_f1": val_f1,
                 "val_acc": val_acc,
                 "val_auc": val_auc
-            }, step=epoch)
+            }
+
+            mlflow.log_metrics(metrics, step=epoch+1)
+
+            if callback:
+                callback(epoch+1, self.epochs, metrics)
 
             if val_prec > best_prec:
                 best_prec = val_prec
@@ -86,27 +91,23 @@ class DeepLearningTrainer:
                 break
 
         metrics["best_val_prec"] = best_prec
-
-        result = {
-            "metrics": metrics,
-            "threshhold": self.threshold,
-        }
+        
 
         self.logger.info(f"Loading best weights from {self.temp_checkpoint_path} for upload...")
         self.model.load_state_dict(torch.load(self.temp_checkpoint_path))
 
-        mlflow.pytorch.log_model(
-            pytorch_model=self.model,
-            artifact_path="model",
+        self.model.cpu()
 
-            registered_model_name=self.model_type, 
-            
+        mlflow.pytorch.log_model(
+            self.model,
+            name="model", 
+            registered_model_name=None,
             input_example=self.input_example,
             code_paths=["src/models.py"] 
         )
         self.logger.info("Best model uploaded to DagsHub!")
 
-        return self.model, result
+        return self.model, metrics
 
     def _train_epoch(self, loader):
         self.model.train()
@@ -276,22 +277,14 @@ def train_ml_model(model, X_train, y_train, X_val, y_val, model_type="ml_model")
 
     logger.info(f"Validation Metrics -> Acc: {acc:.2%} | Prec: {prec:.2%} | Rec: {rec:.2%} | F1: {f1:.2%} | AUC: {auc:.2%}")
 
-    mlflow.log_metrics({
-        "val_acc": acc,
-        "val_prec": prec,
-        "val_rec": rec,
-        "val_f1": f1,
-        "val_auc": auc
-    })
-
-    # 5. Return Metrics
-    result = {
-        "metrics": {
-            "acc": acc,
-            "prec": prec,
-            "rec": rec,
-            "f1": f1,
-            "auc": auc,
-        }
+    metrics = {
+        "acc": acc,
+        "prec": prec,
+        "rec": rec,
+        "f1": f1,
+        "auc": auc
     }
-    return model, result
+
+    mlflow.log_metrics(metrics)
+
+    return model, metrics
