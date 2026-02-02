@@ -106,6 +106,7 @@ class DeepLearningTrainer:
             code_paths=["src/models.py"] 
         )
         self.logger.info("Best model uploaded to DagsHub!")
+        self.model.eval()
 
         return self.model, metrics
 

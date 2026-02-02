@@ -1,5 +1,7 @@
 import streamlit as st
-import time  # Added for simulation delays
+import plotly.graph_objects as go
+import time
+import uuid
 from src import (
     DataProcessor, DeepLearningTrainer, Backtester, train_ml_model, 
     build_model, save_json, setup_logging, get_files_in_dir, is_parquet_file
@@ -17,6 +19,47 @@ import sys
 # ======================================================
 # PAGE CONFIG
 # ======================================================
+
+def create_threshold_chart(stats_df):
+    """Generates the Plotly figure for a given stats dataframe"""
+    plot_data = stats_df.to_pandas()
+    
+    fig = go.Figure()
+
+    # Bar Chart (Wins)
+    fig.add_trace(go.Bar(
+        x=plot_data['Threshold'],
+        y=plot_data['Win Count'],
+        name='Number of Wins',
+        marker_color='rgba(135, 206, 250, 0.6)'
+    ))
+
+    # Line Chart (Win Rate)
+    fig.add_trace(go.Scatter(
+        x=plot_data['Threshold'],
+        y=plot_data['Win Rate (%)'],
+        name='Win Rate %',
+        yaxis='y2',
+        mode='lines+markers',
+        line=dict(color='firebrick', width=3)
+    ))
+
+    fig.update_layout(
+        title="Trade Quantity vs. Quality",
+        xaxis=dict(title="Probability Threshold"),
+        yaxis=dict(title="Number of Wins", side="left"),
+        yaxis2=dict(
+            title="Win Rate (%)",
+            overlaying="y",
+            side="right",
+            range=[0, 100]
+        ),
+        legend=dict(x=0.01, y=0.99),
+        template="plotly_dark",
+        margin=dict(l=0, r=0, t=40, b=0) # Tight layout
+    )
+    return fig
+
 st.set_page_config(
     page_title="AlphaPredict",
     layout="wide"
@@ -116,8 +159,6 @@ with st.sidebar:
 # ======================================================
 # HELPERS
 # ======================================================
-def phone_layout():
-    return st.columns([1, 2, 1])
 
 def save_config(section, data, msg=None):
     st.session_state.config[section] = data
@@ -127,99 +168,181 @@ def save_config(section, data, msg=None):
 # ======================================================
 # PAGE 1: TRAIN DATA PREPARATION (MODIFIED WITH RIGHT SIDEBAR)
 # ======================================================
+
+if "train_data_dp" in st.session_state.config:
+    dp = st.session_state.config["train_data_dp"]
+else:
+    dp = DataProcessor()
+
+main_col, info_col = st.columns([3, 1])
+
+# --- RIGHT SIDEBAR (INFO PANEL) ---
+with info_col:
+    st.subheader("")
+    st.subheader("Data Monitor")
+    data_container = st.container()
+    
+    st.subheader("Model Monitor")
+    model_container = st.container()
+
+    st.subheader("Training Monitor")
+    metrics_container = st.container()
+
+    st.subheader("Test Data Monitor")
+    test_data_container = st.container()
+
+    st.subheader("Simulation Monitor")
+    sim_container = st.container()
+    
+    # Create Placeholders
+    with data_container:
+        data_status = st.empty()
+        data_details = st.container() 
+            
+        if not st.session_state.config.get("data_loaded", False):
+            data_status.info("⚪ Waiting for data...")
+        
+    with model_container:
+        model_text = st.empty()
+        model_details = st.container()
+        training_hp = st.container()
+        if not st.session_state.config.get("model"):
+            model_text.info("⚪ Waiting for configuration...")
+
+    with metrics_container:
+        st.markdown("**Live Metrics**")
+        progress_bar = st.empty()
+        metrics_text = st.empty()
+        metrics_chart = st.container()
+        metrics_text.info("⚪ Waiting for training...")
+
+    with test_data_container:
+        test_data_status = st.empty()
+        test_data_details = st.container() 
+            
+        if not st.session_state.get("backtest", {}).get("data", False):
+            test_data_status.info("⚪ Waiting for valid test data...")
+
+    with sim_container:
+        sim_status = st.empty()
+        sim_details = st.container() 
+            
+        if not st.session_state.config.get("sim_data_loaded", False):
+            sim_status.info("⚪ Waiting for data...")
+
+    if st.session_state.config.get("data_loaded", False):
+        data_status.success("✅ Data Active")
+        with data_details:
+            st.write(f"**Train Shape:** {dp.train_shape}")
+            st.write(f"**Val Shape:** {dp.val_shape}")
+            st.write(f"**Train Ratio:** {dp.train_ratio}")
+            st.write(f"**Stocks:** {len(dp.stocks)}")
+            st.write(f"**Features:** {len(dp.feature_cols)}")
+            st.write(f"**Time Horizon:** {dp.time_horizon}")
+            st.write(f"**Sequence Length:** {dp.seq_len}")
+            st.write(f"**Profit Pct:** {dp.profit_pct}")
+            st.write(f"**Stop Pct:** {dp.stop_pct}")
+            st.write(f"**Raw Path:** {dp.full_path}")
+            st.write(f"**Train Pos Count:** {dp.train_pos_count}")
+            st.write(f"**Train Neg Count:** {dp.train_neg_count}")
+            st.write(f"**Val Pos Count:** {dp.val_pos_count}")
+            st.write(f"**Val Neg Count:** {dp.val_neg_count}")
+            
+        if dp.train_pos_count == 0 or dp.train_neg_count == 0:
+            st.toast("Train Data has only one class!", icon="❌")
+            st.session_state.valid_data = False
+            
+        if dp.val_pos_count == 0 or dp.val_neg_count == 0:
+            st.toast("Validation Data has only one class!", icon="❌")
+            st.session_state.valid_data = False
+        
+    if st.session_state.config.get("model"):
+
+        model = st.session_state.config["model"]
+        model_text.write(model["model_type"])
+            
+        for key, value in model["params"].items():
+            model_details.write(f"**{key}**: {value}")
+
+        if model.get("training"):
+            training_params = model["training"]
+            model_details.write("### Training Hyperparameters")
+
+            for key, value in training_params.items():
+                model_details.write(f"**{key}**: {value}")
+
+        if st.session_state.config.get("metrics"):
+            metrics = st.session_state.config["metrics"]
+            metrics_text.write("✅ Training Complete")
+            progress_bar.progress(1.0)
+
+            if model.get("model_type").lower() in ["lstm", "transformer"]:
+                with metrics_chart:
+                    tab1, tab2 = st.tabs(["📉 Loss & Acc", "📊 Advanced Metrics"])
+                                            
+                    with tab1:
+                        c1, c2 = st.columns(2)
+                        train_loss_chart = c1.empty()
+                        val_loss_chart = c2.empty()
+                        train_acc_chart = c1.empty()
+                        val_acc_chart = c2.empty()
+                                            
+                    with tab2:
+                        c1, c2 = st.columns(2)
+                        train_f1_chart = c1.empty()
+                        val_f1_chart = c2.empty()
+                        train_auc_chart = c1.empty()
+                        val_auc_chart = c2.empty()
+                        train_prec_chart = c1.empty()
+                        val_prec_chart = c2.empty()
+                        train_rec_chart = c1.empty()
+                        val_rec_chart = c2.empty()
+
+                train_loss_chart.metric("Train Loss", f"{metrics['train_loss']:.4f}")
+                train_acc_chart.metric("Train Accuracy", f"{metrics['train_acc']:.4f}")
+                train_f1_chart.metric("Train F1", f"{metrics['train_f1']:.4f}")
+                train_prec_chart.metric("Train Precision", f"{metrics['train_prec']:.4f}")
+                train_rec_chart.metric("Train Recall", f"{metrics['train_rec']:.4f}")
+                train_auc_chart.metric("Train AUC", f"{metrics['train_auc']:.4f}")
+                val_loss_chart.metric("Val Loss", f"{metrics['val_loss']:.4f}")
+                val_acc_chart.metric("Val Accuracy", f"{metrics['val_acc']:.4f}")
+                val_f1_chart.metric("Val F1", f"{metrics['val_f1']:.4f}")
+                val_prec_chart.metric("Val Precision", f"{metrics['val_prec']:.4f}")
+                val_rec_chart.metric("Val Recall", f"{metrics['val_rec']:.4f}")
+                val_auc_chart.metric("Val AUC", f"{metrics['val_auc']:.4f}")
+
+            else:
+                with metrics_chart:
+                    acc_chart = st.empty()
+                    f1_chart = st.empty()
+                    prec_chart = st.empty()
+                    rec_chart = st.empty()
+                    auc_chart = st.empty()
+                
+                acc_chart.metric("Accuracy", f"{metrics.get('acc', 0):.2%}")
+                f1_chart.metric("F1", f"{metrics.get('f1', 0):.2%}")
+                prec_chart.metric("Precision", f"{metrics.get('prec', 0):.2%}")
+                rec_chart.metric("Recall", f"{metrics.get('rec', 0):.2%}")
+                auc_chart.metric("AUC", f"{metrics.get('auc', 0):.2%}")
+
+    if st.session_state.get("backtester", False) and st.session_state.get("backtest").data:
+        bt = st.session_state.get("backtest")
+        if st.session_state.get("test_data_valid"):
+            test_data_status.info("🟢 Valid Test Data")
+        else:
+            test_data_status.info("🔴 Invalid Test Data")
+
+        test_data_details.write("### Test Data Details")
+        test_data_details.write(f"**Test Data Shape: {bt.data.shape}**")
+    
+
 if st.session_state.page == "Train New Model":
 
-    data_files = get_files_in_dir("data")
     if "run_id" not in st.session_state:
         st.session_state.run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     st.session_state.valid_data = st.session_state.get("valid_data", False)
-    
-    # 1. FIX: Recover DataProcessor from Session State if it exists
-    #    Otherwise, create a new one.
-    if "train_data_dp" in st.session_state.config:
-        dp = st.session_state.config["train_data_dp"]
-    else:
-        dp = DataProcessor()
 
-    # --- LAYOUT ---
-    main_col, info_col = st.columns([3, 1])
-
-    # --- RIGHT SIDEBAR (INFO PANEL) ---
-    with info_col:
-        st.subheader("")
-        st.subheader("Data Monitor")
-        data_container = st.container()
-        
-        st.subheader("Model Monitor")
-        model_container = st.container()
-
-        st.subheader("Training Monitor")
-        metrics_container = st.container()
-        
-        # Create Placeholders
-        with data_container:
-            data_status = st.empty()
-            data_details = st.container() 
-            
-            if not st.session_state.config.get("data_loaded", False):
-                data_status.info("⚪ Waiting for data...")
-        
-        with model_container:
-            model_text = st.empty()
-            model_details = st.container()
-            training_hp = st.container()
-            if not st.session_state.config.get("model"):
-                model_text.info("⚪ Waiting for configuration...")
-
-        with metrics_container:
-            st.markdown("**Live Metrics**")
-            progress_bar = st.empty()
-            metrics_text = st.empty()
-            metrics_chart = st.container()
-            metrics_text.info("⚪ Waiting for training...")
-
-        if st.session_state.config.get("data_loaded", False):
-            data_status.success("✅ Data Active")
-            with data_details:
-                st.write(f"**Train Shape:** {dp.train.shape}")
-                st.write(f"**Val Shape:** {dp.val.shape}")
-                st.write(f"**Stocks:** {len(dp.stocks)}")
-                st.write(f"**Features:** {len(dp.feature_cols)}")
-                st.write(f"**Time Horizon:** {dp.time_horizon}")
-                st.write(f"**Sequence Length:** {dp.seq_len}")
-                st.write(f"**Profit Pct:** {dp.profit_pct}")
-                st.write(f"**Stop Pct:** {dp.stop_pct}")
-                st.write(f"**Raw Path:** {dp.full_path}")
-                st.write(f"**Train Pos Count:** {dp.train_pos_count}")
-                st.write(f"**Train Neg Count:** {dp.train_neg_count}")
-                st.write(f"**Val Pos Count:** {dp.val_pos_count}")
-                st.write(f"**Val Neg Count:** {dp.val_neg_count}")
-            
-            if dp.train_pos_count == 0 or dp.train_neg_count == 0:
-                st.toast("Train Data has only one class!", icon="❌")
-                st.session_state.valid_data = False
-            
-            if dp.val_pos_count == 0 or dp.val_neg_count == 0:
-                st.toast("Validation Data has only one class!", icon="❌")
-                st.session_state.valid_data = False
-        
-        if st.session_state.config.get("model"):
-
-            model = st.session_state.config["model"]
-            model_text.write(model["model_type"])
-            
-            for key, value in model["params"].items():
-                model_details.write(f"**{key}**: {value}")
-
-            if model.get("training"):
-                training_params = model["training"]
-                model_details.write("### Training Hyperparameters")
-
-                for key, value in training_params.items():
-                    model_details.write(f"**{key}**: {value}")
-
-    # --- MAIN CONTENT ---
     with main_col:
         st.title("📂 Train Data Preparation")
         st.session_state.new_data = st.session_state.get("new_data", False)
@@ -257,6 +380,7 @@ if st.session_state.page == "Train New Model":
 
         elif load_option == "Load from Local File":
             purpose = "train_data_prep"
+            data_files = get_files_in_dir("data")
             choice = st.selectbox("Pick data file:", data_files, index=None)
 
             if choice and not is_parquet_file("data/" + choice):
@@ -331,6 +455,8 @@ if st.session_state.page == "Train New Model":
                     dp.save_data(st.session_state.get("run_id"))
                     save_config("train_data_mlflow_run_id", run.info.run_id)
                 st.toast("Data saved to MLFlow successfully!", icon="✅")
+                st.session_state.new_data = False
+                st.rerun() 
         
         if st.session_state.valid_data:
 
@@ -437,7 +563,7 @@ if st.session_state.page == "Train New Model":
                             model_details.write(f"**{key}**: {value}")
 
                         if training_params:
-                            st.session_state.config["training"] = training_params
+                            st.session_state.config["model"]["training"] = training_params
 
                             model_details.write("### Training Hyperparameters")
 
@@ -482,18 +608,18 @@ if st.session_state.page == "Train New Model":
                             mlflow.set_tag("author", author)
                             mlflow.set_tag("purpose", "model_training")
 
-                            if model_type in ["LSTM", "Transformer"]:
+                            if model_type in ["LSTM", "Transformer"]:    
 
                                 with metrics_chart:
                                     tab1, tab2 = st.tabs(["📉 Loss & Acc", "📊 Advanced Metrics"])
-                                    
+                                                            
                                     with tab1:
                                         c1, c2 = st.columns(2)
                                         train_loss_chart = c1.empty()
                                         val_loss_chart = c2.empty()
                                         train_acc_chart = c1.empty()
                                         val_acc_chart = c2.empty()
-                                    
+                                                            
                                     with tab2:
                                         c1, c2 = st.columns(2)
                                         train_f1_chart = c1.empty()
@@ -504,7 +630,7 @@ if st.session_state.page == "Train New Model":
                                         val_prec_chart = c2.empty()
                                         train_rec_chart = c1.empty()
                                         val_rec_chart = c2.empty()
-                                
+
                                 if torch.backends.mps.is_available():
                                     device = torch.device("mps")
                                 elif torch.cuda.is_available():
@@ -528,17 +654,17 @@ if st.session_state.page == "Train New Model":
                                 mlflow.log_params(hp)
 
                                 if training_params["pos_weight"] == "True":
-                                    pos_weight = torch.tensor((num_neg / (num_pos + 1e-6)), dtype=torch.float32).to(device)
+                                    training_params["pos_weight"] = torch.tensor((num_neg / (num_pos + 1e-6)), dtype=torch.float32).to(device)
                                 else:
-                                    pos_weight = None
+                                    training_params["pos_weight"] = None
 
-                                criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+                                criterion = nn.BCEWithLogitsLoss(pos_weight=training_params["pos_weight"])
                                 optimizer = torch.optim.Adam(model.parameters(), lr=training_params["lr"])
 
                                 mlflow_params = {
                                     "created_at": datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                                    "ratio_val": ratio_val if ratio_val else None,
-                                    "pos_weight": pos_weight.item() if pos_weight else None,
+                                    "ratio_val": params.get("ratio_val"),
+                                    "pos_weight": training_params.get("pos_weight"),
                                     "criterion": criterion.__class__.__name__,
                                     "optimizer": optimizer.__class__.__name__,
                                     "learning_rate": training_params["lr"],
@@ -551,15 +677,8 @@ if st.session_state.page == "Train New Model":
                                 trainer = DeepLearningTrainer(model, criterion, optimizer, device, epochs, patience, input_example, model_type, threshold)
                                 trained_model, result = trainer.train(train_loader, val_loader, callback=ui_callback)
 
-                                mlflow.log_metrics(result)
-                            
+                                mlflow.log_metrics(result)                           
                             else:
-                                with metrics_chart:
-                                    acc_chart = st.empty()
-                                    f1_chart = st.empty()
-                                    prec_chart = st.empty()
-                                    rec_chart = st.empty()
-                                    auc_chart = st.empty()
                                 
                                 with st.spinner(f"Training {model_type} model... This usually takes a few seconds."):
                                     train_X = dp.reshape_for_ml(train_X)
@@ -573,55 +692,192 @@ if st.session_state.page == "Train New Model":
 
                                     trained_model, result = train_ml_model(model, train_X, train_y, val_X, val_y, model_type)
                                     mlflow.log_metrics(result)
-
-                                progress_bar.progress(1.0)
-                                metrics_text.write("✅ Training Complete")
                                 
-                                acc_chart.metric("Final Accuracy", f"{result.get('acc', 0):.2%}")
-                                f1_chart.metric("Final F1", f"{result.get('f1', 0):.2%}")
-                                prec_chart.metric("Final Precision", f"{result.get('prec', 0):.2%}")
-                                rec_chart.metric("Final Recall", f"{result.get('rec', 0):.2%}")
-                                auc_chart.metric("Final AUC", f"{result.get('auc', 0):.2%}")
+                            st.session_state.training_run_id = training_run.info.run_id 
+
+                        st.toast("Model saved in MLFlow", icon="✅")
+                        st.session_state.config["metrics"] = result
+                        st.session_state.config["trained_model"] = trained_model 
+
+                        st.rerun()
 
 # ======================================================
 # PAGE 2: TEST DATA PREPARATION (UNCHANGED)
 # ======================================================
 elif st.session_state.page == "Test Model":
-    _, center, _ = phone_layout()
-    with center:
+
+    bt = st.session_state.config.get("backtester", Backtester())
+    st.session_state.analysis_history = st.session_state.get("analysis_history", [])
+    if "run_id" not in st.session_state:
+        st.session_state.run_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    with main_col:
         st.title("🧪 Test Model")
-        cfg = st.session_state.config.get("test_data", {})
 
-        with st.form("test_data_form"):
-            test_path = st.text_input("Test Data Path", cfg.get("path", "./test_data.csv"))
-            submit = st.form_submit_button("Prepare Test Data")
+        model_choice = st.session_state.get("model_choice", None)
+        if st.session_state.config.get("trained_model", None) is not None:
+            model_choice = st.selectbox("Do you want to test the existing model?", 
+                ["Yes", "No"], index=None) 
 
-        if submit:
-            save_config("test_data", {"path": test_path}, "Test Data Configured!")
+            if model_choice == "Yes":
+                bt.dp = st.session_state.config["train_data_dp"]
+                bt.dp.mode = "test"
+                bt.model = st.session_state.config["trained_model"]
+                bt.model_type = st.session_state.config["model"]["model_type"]
+        
+        if model_choice == "No" or st.session_state.config.get("trained_model", None) is None:
+            selected_model = None
+            selected_model = st.selectbox("Select Model", bt.get_all_models(author, "model_training"), index=None)
 
-# ======================================================
-# PAGE 3: RUN SIMULATION (UNCHANGED)
-# ======================================================
+            if selected_model:
+                bt.load_using_mlrun_id(bt.run_dict[selected_model])
+                st.session_state.config["train_data_dp"] = bt.dp
+                st.session_state.config["data_loaded"] = True
+                st.session_state.config["trained_model"] = bt.model
+                model = {
+                    "model_type": bt.model_type,
+                    "params": bt.training_params
+                }
+                st.session_state.config["model"] = model
+                st.session_state.config["metrics"] = bt.training_metrics
+                
+                st.session_state.model_choice = "Yes"
+                st.rerun()
+            
+        if model_choice == "Yes":
+            data_files = get_files_in_dir("data")
+            choice = st.selectbox("Select Test Data", data_files, index=None)
+
+            if choice and not is_parquet_file("data/" + choice):
+                st.toast("Selected file is not a parquet file!", icon="❌")
+            elif choice:
+                stocks = bt.get_common_stocks(choice)
+
+                with st.form("local_load"):
+                    train_ratio = st.number_input("Train Ratio", 0.0, 0.9, 0.8)
+                    submit = st.form_submit_button("Prepare Data")
+
+                    if submit:
+                        bt.run_inference(choice, train_ratio)
+                        st.session_state.config["backtester"] = bt
+
+            if bt.data is not None and bt.data.height >= bt.dp.seq_len:
+                st.session_state.test_data_valid = True
+            elif bt.data is not None:
+                st.toast("Test data is not long enough!", icon="❌")
+            
+        if st.session_state.get("test_data_valid", False):
+
+            st.subheader("Threshold Optimization")
+            c1, c2 = st.columns(2)
+
+            profit_pct = (c1.number_input("Profit Percentage (%)", 0.1, 100.0, 2.0))/100
+            stop_pct = (c1.number_input("Stop Percentage (%)", 0.1, 100.0, 1.0))/100
+            time_horizon = c1.number_input("Time Horizon", 1, 500, 5)
+            
+            min_t = c2.slider("Min Threshold", 0.01, 0.9, 0.5, 0.01)
+            max_t = c2.slider("Max Threshold", 0.1, 1.0, 0.95, 0.01)
+            step = c2.slider("Step", 0.01, 0.1, 0.01)
+
+            if st.button("Analyze & Add Graph"):
+                bt.update_target(bt.results_df, profit_pct, stop_pct, time_horizon)
+                stats_df = bt.analyze_thresholds(bt.results_df, min_t, max_t, step)
+                new_entry = {
+                    "id": str(uuid.uuid4()),
+                    "data": stats_df,
+                    "min": min_t,
+                    "profit_pct": profit_pct,
+                    "stop_pct": stop_pct,
+                    "time_horizon": time_horizon,
+                    "max": max_t,
+                    "timestamp": time.strftime("%H:%M:%S")
+                }
+                st.session_state.analysis_history.append(new_entry)
+                st.success(f"Graph added! Total graphs: {len(st.session_state.analysis_history)}")
+
+            st.divider()
+
+            for index, entry in enumerate(st.session_state.analysis_history):
+                with st.container():
+                    col_title, col_delete = st.columns([4, 1])
+                    with col_title:
+                        st.markdown(f"### 📊 Analysis #{index + 1}")
+                        st.caption(f"Threshold Range: {entry['min']} - {entry['max']} | Time: {entry['timestamp']} | Profit: {entry['profit_pct']} | Stop: {entry['stop_pct']} | Horizon: {entry['time_horizon']}")
+                    with col_delete:
+                        if st.button("🗑️ Remove", key=f"del_{entry['id']}"):
+                            st.session_state.analysis_history.pop(index)
+                            st.rerun()
+
+                    fig = create_threshold_chart(entry['data'])
+                    st.plotly_chart(fig, width="stretch")
+                    
+                    with st.expander(f"View Data for Analysis #{index + 1}"):
+                        st.dataframe(entry['data'], hide_index=True)
+
 elif st.session_state.page == "Run Simulation":
-    _, center, _ = phone_layout()
-    with center:
+
+    if st.session_state.config.get("backtester") is None or st.session_state.config["backtester"].results_df is None:
+        st.toast("No predictions found. Please run a test first in the Test Model page. Redirecting...", icon="❌")
+        st.session_state.page = "Test Model"
+        time.sleep(2)
+        st.rerun()
+    
+    bt = st.session_state.config.get("backtester")
+
+    with main_col:
         st.title("🚀 Run Simulation")
         cfg = st.session_state.config.get("simulation", {})
 
         with st.form("simulation_form"):
-            profit_pct = st.number_input("Profit Percentage (%)", 0.1, 100.0, cfg.get("profit_pct", 2.0))
-            stop_pct = st.number_input("Stop Percentage (%)", 0.1, 100.0, cfg.get("stop_pct", 1.0))
-            time_horizon = st.number_input("Time Horizon", 1, 500, cfg.get("time_horizon", 10))
-            brokerage = st.number_input("Brokerage (₹)", 0.0, 1000.0, cfg.get("brokerage", 20.0))
-            investment = st.number_input("Investment per Stock (₹)", 100.0, 10_000_000.0, cfg.get("investment", 10_000.0))
+            c1, c2 = st.columns(2)
+            profit_pct = (c1.number_input("Profit Percentage (%)", 0.1, 100.0, 2.0))/100
+            stop_pct = (c1.number_input("Stop Percentage (%)", 0.1, 100.0, 1.0))/100
+            time_horizon = c1.number_input("Time Horizon", 1, 500, 5)
+            brokerage = (c2.number_input("Brokerage (%)", 0.0, 3.0, 2.0))/100
+            investment = c2.number_input("Investment per Stock (₹)", 100.0, 10_000_000.0, 10_000.0)
+            threshold = c2.number_input("Threshold", 0.01, 1.0, 0.5)
             submit = st.form_submit_button("Run Simulation")
 
         if submit:
             save_config("simulation", {
                 "profit_pct": profit_pct, "stop_pct": stop_pct,
                 "time_horizon": time_horizon, "brokerage": brokerage,
-                "investment": investment
+                "investment": investment, "threshold": threshold
             }, "Simulation Config Saved!")
+
+            results_saved = False
+
+            with st.spinner("Running Simulation..."):
+                df_pnl, results = bt.run_simulation(
+                    data=bt.results_df,
+                    time_horizon=time_horizon,
+                    profit_pct=profit_pct,
+                    brokerage=brokerage,
+                    stop_pct=stop_pct,
+                    investment_per_stock=investment,
+                    threshold=threshold
+                )
+                
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Trades", results['total_trades'])
+            c2.metric("Win Rate", f"{(results['total_wins']/results['total_trades'])*100:.1f}%" if results['total_trades'] > 0 else "0%")
+            c3.metric("Net PnL", f"₹ {results['total_pnl']:,.2f}", delta_color="normal")
+                
+            roi = (results['total_pnl'] / (investment * results['total_trades'])) * 100 if results['total_trades'] > 0 else 0
+            c4.metric("Avg ROI / Trade", f"{roi:.2f}%")
+
+            st.divider()
+                
+            if results['total_trades'] > 0:
+                fig = bt.plot_equity_curve(df_pnl)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No trades generated with current settings. Lower the threshold or adjust profit/stop targets.")
             
             st.subheader("📌 Current Configuration")
-            st.json(st.session_state.config)
+            st.json(st.session_state.config["simulation"])
+
+            if not results_saved and st.button("Save Results"):
+                bt.save_results()
+                results_saved = True
+                st.success("Results Saved!")

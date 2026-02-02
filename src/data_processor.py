@@ -19,6 +19,8 @@ class DataProcessor:
         self.full_path = None
         self.req_cols = ['Stock ID', 'datetime', 'close', 'volume', 'high', 'low', 'open']
         self.stocks = []
+        self.train_shape = None
+        self.val_shape = None
 
         self.feature_cols = []
 
@@ -42,7 +44,7 @@ class DataProcessor:
     # ==========================================
     # 1. Data Loading & Feature Engineering
     # ==========================================
-    def load_data(self, data_filename: str, n_stocks=1, stocks=None):
+    def load_data(self, data_filename: str, n_stocks=1, stocks=[]):
         """
         Loads data and filters for specific stocks.
         To filter stocks, pass a list of stock IDs.
@@ -73,7 +75,7 @@ class DataProcessor:
                 extras = random.sample(available_pool, needed)
             else:
                 extras = available_pool
-            
+                
             self.stocks = stocks + extras
 
         q = q.filter(pl.col("Stock ID").is_in(self.stocks))
@@ -312,14 +314,19 @@ class DataProcessor:
         self.train = self.df.filter(pl.col("datetime") < split_date)
         
         # Include buffer for validation to allow windowing at the boundary
-        buffer_date = dates[max(0, split_idx - seq_len)]
+        buffer_date = dates[max(0, split_idx - seq_len + 1)]
         self.val = self.df.filter(pl.col("datetime") >= buffer_date)
 
-        self.train_pos_count = self.train["target"].sum()  # Sum of 1s = count of 1s
-        self.train_neg_count = self.train.height - self.train_pos_count
+        if self.mode == "train":
 
-        self.val_pos_count = self.val["target"].sum()
-        self.val_neg_count = self.val.height - self.val_pos_count
+            self.train_pos_count = self.train["target"].sum()  # Sum of 1s = count of 1s
+            self.train_neg_count = self.train.height - self.train_pos_count
+
+            self.val_pos_count = self.val["target"].sum()
+            self.val_neg_count = self.val.height - self.val_pos_count
+
+            self.train_shape = self.train.shape
+            self.val_shape = self.val.shape
         
         return self.train, self.val
 
@@ -540,17 +547,19 @@ class DataProcessor:
         self.feature_cols = metadata["feature_cols"]
         self.stocks = metadata["stocks"]
 
+        self.time_horizon = int(config["time_horizon"])
+        self.profit_pct = float(config["profit_pct"])
+        self.stop_pct = float(config["stop_pct"])
+        self.train_shape = config["train_shape"]
+        self.train_ratio = float(config["train_ratio"])
+        self.val_shape = config["val_shape"]
+        self.train_pos_count = config["train_pos_count"]
+        self.train_neg_count = config["train_neg_count"]
+        self.val_pos_count = config["val_pos_count"]
+        self.val_neg_count = config["val_neg_count"]
+        self.full_path = config["raw_data_path"]
+
         if self.mode == "train":
-            self.time_horizon = int(config["time_horizon"])
-            self.profit_pct = float(config["profit_pct"])
-            self.stop_pct = float(config["stop_pct"])
-            self.train_shape = config["train_shape"]
-            self.val_shape = config["val_shape"]
-            self.train_pos_count = config["train_pos_count"]
-            self.train_neg_count = config["train_neg_count"]
-            self.val_pos_count = config["val_pos_count"]
-            self.val_neg_count = config["val_neg_count"]
-            self.full_path = config["raw_data_path"]
 
             try:
                 self.train = pl.read_parquet(metadata["train_data_path"])
@@ -630,11 +639,11 @@ class DataProcessor:
 
         return q.select("datetime").unique().collect().to_series().to_list()
 
-    def exists_config(self, config, author_id, purpose):
+    def exists_config(self, config, author, purpose):
 
         full_raw_file_path = os.path.join("data", config['raw_file_name'])
 
-        query = f"tags.author_id = '{author_id}' AND tags.purpose = '{purpose}' AND \
+        query = f"tags.author = '{author}' AND tags.purpose = '{purpose}' AND \
             params.seq_len = '{config['seq_len']}' AND params.time_horizon = '{config['time_horizon']}' AND \
                 params.profit_pct = '{config['profit_pct']}' AND params.stop_pct = '{config['stop_pct']}' AND \
                     params.raw_data_path = '{full_raw_file_path}' AND params.train_ratio = '{config['train_ratio']}' AND \

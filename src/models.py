@@ -30,7 +30,7 @@ class TransformerEncoder(nn.Module):
     def __init__(self, d_in, d_model, nhead, n_layers, d_out, max_len=100, dropout=0.2, ratio_val=None):
         super().__init__()
         self.logger = get_logger(__name__)
-        self.logger.info(f"Initializing TransformerEncoder with d_in={d_in}, d_model={d_model}, nhead={nhead}, n_layers={n_layers}, d_out={d_out}, max_len={max_len}, dropout={dropout}, pos_weight_val={pos_weight_val}")
+        self.logger.info(f"Initializing TransformerEncoder with d_in={d_in}, d_model={d_model}, nhead={nhead}, n_layers={n_layers}, d_out={d_out}, max_len={max_len}, dropout={dropout}, pos_weight_val={ratio_val}")
         if d_model % nhead != 0:
             msg = "d_model must be divisible by nhead"
             self.logger.error(msg)
