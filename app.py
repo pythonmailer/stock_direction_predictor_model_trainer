@@ -76,6 +76,8 @@ def init_dagshub():
         mlflow.set_experiment("Stock_Direction_Predictor")
         st.session_state["dagshub_initialized"] = True
 
+init_dagshub()
+
 author = "pythonmailer156"
 
 # ======================================================
