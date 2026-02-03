@@ -9,7 +9,6 @@ from .utils import get_logger, save_json, load_json
 from torch.utils.data import DataLoader, TensorDataset
 from numpy.lib.stride_tricks import sliding_window_view
 
-
 class DataProcessor:
     def __init__(self, mode="train"):
         self.logger = get_logger(__name__)
@@ -91,12 +90,16 @@ class DataProcessor:
         print(f"Loaded {len(self.df)} rows.")
         return self.df
 
-    def calculate_indicators(self, features_cols: list[str] = None) -> pl.DataFrame:
+    def calculate_indicators(self, features_cols: list[str] = []) -> pl.DataFrame:
         """
         Computes technical indicators using Polars expressions dynamically.
         Only calculates what is requested in features_cols to save memory.
         """
         try:
+
+            if "target" in features_cols:
+                features_cols.remove("target")
+
             self.logger.info("Calculating technical indicators...")
             df = self.df.sort(["Stock ID", "datetime"])
             EPS = 1e-9
@@ -338,11 +341,14 @@ class DataProcessor:
         self.logger.info("Fitting Scaler on Data...")
         
         # 1. Calculate Stats on Train (Median & IQR per Stock)
-        self.scaler = df.group_by("Stock ID").agg([
-            pl.col(c).median().alias(f"{c}_med") for c in features
-        ] + [
-            (pl.col(c).quantile(0.75) - pl.col(c).quantile(0.25)).alias(f"{c}_iqr") for c in features
-        ])
+        if self.scaler is not None:
+            self.scaler = df.group_by("Stock ID").agg([
+                pl.col(c).median().alias(f"{c}_med") for c in features
+            ] + [
+                (pl.col(c).quantile(0.75) - pl.col(c).quantile(0.25)).alias(f"{c}_iqr") for c in features
+            ])
+        else:
+            raise ValueError("Scaler exists already.")
         
         return self.scaler
 
@@ -357,7 +363,6 @@ class DataProcessor:
             scaled = (pl.col(c) - pl.col(f"{c}_med")) / (pl.col(f"{c}_iqr") + 1e-9)
             exprs.append(scaled.clip(-3.0, 3.0).alias(c))
             
-        # Select only original columns + scaled features (drop stat cols)
         keep = [col for col in df.columns if "_med" not in col and "_iqr" not in col]
         return df.with_columns(exprs).select(keep)
 

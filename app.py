@@ -4,7 +4,8 @@ import time
 import uuid
 from src import (
     DataProcessor, DeepLearningTrainer, Backtester, train_ml_model, 
-    build_model, save_json, setup_logging, get_files_in_dir, is_parquet_file
+    build_model, save_json, setup_logging, get_files_in_dir, is_parquet_file,
+    set_global_seed
 )
 from datetime import datetime
 import polars as pl
@@ -19,6 +20,8 @@ import sys
 # ======================================================
 # PAGE CONFIG
 # ======================================================
+
+set_global_seed(42)
 
 def create_threshold_chart(stats_df):
     """Generates the Plotly figure for a given stats dataframe"""
@@ -66,10 +69,13 @@ st.set_page_config(
 )
 
 setup_logging()
-
 # Initialize DagsHub & MLflow
-dagshub.init(repo_owner='pythonmailer156', repo_name='stock_direction_predictor_model_trainer', mlflow=True)
-mlflow.set_experiment("Stock_Direction_Predictor")
+def init_dagshub():
+    if not st.session_state.get("dagshub_initialized", False):
+        dagshub.init(repo_owner='pythonmailer156', repo_name='stock_direction_predictor_model_trainer', mlflow=True)
+        mlflow.set_experiment("Stock_Direction_Predictor")
+        st.session_state["dagshub_initialized"] = True
+
 author = "pythonmailer156"
 
 # ======================================================
@@ -454,6 +460,7 @@ if st.session_state.page == "Train New Model":
                     mlflow.set_tag("purpose", purpose)
                     dp.save_data(st.session_state.get("run_id"))
                     save_config("train_data_mlflow_run_id", run.info.run_id)
+                    mlflow.end_run()
                 st.toast("Data saved to MLFlow successfully!", icon="✅")
                 st.session_state.new_data = False
                 st.rerun() 
@@ -694,6 +701,7 @@ if st.session_state.page == "Train New Model":
                                     mlflow.log_metrics(result)
                                 
                             st.session_state.training_run_id = training_run.info.run_id 
+                            mlflow.end_run()
 
                         st.toast("Model saved in MLFlow", icon="✅")
                         st.session_state.config["metrics"] = result

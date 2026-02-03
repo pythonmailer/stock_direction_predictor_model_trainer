@@ -5,6 +5,34 @@ from pathlib import Path
 import json
 import polars as pl
 from datetime import datetime, date
+import random
+import numpy as np
+import torch
+
+
+def set_global_seed(seed: int):
+    """
+    Enforces best-effort determinism across Python, NumPy and PyTorch.
+    Call ONCE at program start.
+    """
+
+    # Python
+    random.seed(seed)
+
+    # NumPy
+    np.random.seed(seed)
+
+    # PyTorch
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # Enforce deterministic algorithms
+    torch.use_deterministic_algorithms(True)
+
+    # Disable nondeterministic optimizations
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 def setup_logging(log_dir="logs"):
     """
