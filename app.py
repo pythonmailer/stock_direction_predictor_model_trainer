@@ -69,7 +69,7 @@ st.set_page_config(
 )
 
 setup_logging()
-# Initialize DagsHub & MLflow
+
 def init_dagshub():
     if not st.session_state.get("dagshub_initialized", False):
         dagshub.init(repo_owner='pythonmailer156', repo_name='stock_direction_predictor_model_trainer', mlflow=True)
