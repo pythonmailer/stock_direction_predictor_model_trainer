@@ -70,7 +70,7 @@ def test_target_creation(sample_data):
     assert "target" in df_target.columns
     # Target should be 0 or 1
     unique_targets = df_target["target"].unique().to_list()
-    assert set(unique_targets).issubset({0, 1, -1}) # depending on your logic (binary or triple barrier)
+    assert set(unique_targets).issubset({0, 1}) # depending on your logic (binary or triple barrier)
 
 def test_model_builder_lstm():
     """Test if LSTM builds with correct dimensions."""
