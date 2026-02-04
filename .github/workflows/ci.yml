@@ -44,4 +44,4 @@ jobs:
       # and runs the functions inside them.
       - name: Run Tests
         run: |
-          pytest
+          python -m pytest
