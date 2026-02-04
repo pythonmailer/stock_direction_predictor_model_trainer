@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+.venv
+venv
+env
+
+# Data (We will mount this or pull it via DVC, don't bake it into the image)
+data/*.parquet
+artifacts/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# IDEs
+.vscode
+.idea
