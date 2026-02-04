@@ -14,3 +14,4 @@ streamlit
 plotly
 mlflow
 dagshub
+pytest
