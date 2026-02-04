@@ -15,3 +15,5 @@ plotly
 mlflow
 dagshub
 pytest
+dvc
+dvc-s3
