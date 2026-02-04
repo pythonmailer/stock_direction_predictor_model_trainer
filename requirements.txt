@@ -17,3 +17,4 @@ dagshub
 pytest
 dvc
 dvc-s3
+awscli
