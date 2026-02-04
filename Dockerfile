@@ -13,11 +13,7 @@ WORKDIR /app
 # 4. Install System Dependencies
 # 'git' is often needed for DVC or installing packages from repositories
 # 'build-essential' helps compile C-extensions for libraries like Polars/Numpy if needed
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # 5. Copy Dependencies First (Caching Layer)
 # We copy ONLY requirements.txt first. Docker caches this step.
