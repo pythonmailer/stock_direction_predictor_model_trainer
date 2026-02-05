@@ -357,7 +357,7 @@ if st.session_state.page == "Train New Model":
 
         load_option = st.selectbox(
             "How do you want to load data?:", 
-            ["Load using MLFlow run id", "Load from Local File"], 
+            ["Load using MLFlow run id", "Load from S3"], 
             index=None
         )
 
@@ -386,7 +386,7 @@ if st.session_state.page == "Train New Model":
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        elif load_option == "Load from Local File":
+        elif load_option == "Load from S3":
             purpose = "train_data_prep"
             data_files = get_files_in_dir("data")
             choice = st.selectbox("Pick data file:", data_files, index=None)
@@ -440,7 +440,7 @@ if st.session_state.page == "Train New Model":
                             st.session_state.valid_data = True
 
                         else:
-                            data_status.info("Loading data from local file...")             
+                            data_status.info("Loading data from file...")             
                             data = dp.load_data(choice, n_stocks, stock_names)
                             data, final_feats = dp.calculate_indicators(indicators)
                             dp.create_binary_target(data, profit_pct, stop_pct, time_horizon)
