@@ -20,8 +20,8 @@ import sys
 # ======================================================
 # PAGE CONFIG
 # ======================================================
-
-set_global_seed(42)
+seed = 42
+set_global_seed(seed)
 
 def create_threshold_chart(stats_df):
     """Generates the Plotly figure for a given stats dataframe"""
@@ -402,22 +402,19 @@ if st.session_state.page == "Train New Model":
                     c1, c2 = st.columns(2)
                     with c1:
                         train_ratio = st.number_input("Train Ratio", 0.1, 1.0, 0.8)
-                        profit_pct = st.number_input("Profit Target (%)", 0.1, 100.0, 3.0)
-                        stop_pct = st.number_input("Stop Loss (%)", 0.1, 100.0, 1.0)
+                        profit_pct = (st.number_input("Profit Target (%)", 0.1, 100.0, 3.0))/100
+                        stop_pct = (st.number_input("Stop Loss (%)", 0.1, 100.0, 1.0))/100
                     with c2:
-                        seq_len = st.number_input("Lookback Period", 5, 500, 30)
-                        time_horizon = st.number_input("Time Horizon", 1, 500, 5)
-                        n_stocks = st.number_input("Num Stocks", 1, len(stocks), 5)
+                        seq_len = st.number_input("Lookback Period (How far behind the model can see to predict future direction.)", 5, 60, 30)
+                        time_horizon = st.number_input("Time Horizon (How long are you willing to hold the stock, if you don't make profit or loss in this period, you will exit the trade.)", 1, 60, 5)
+                        n_stocks = st.number_input("Num Stocks (Max 5 for Testing)", 1, 5, 5)
                     
-                    stock_names = st.multiselect("Select Stocks", stocks)
+                    stock_names = st.multiselect("Select Stocks (If no stock is selected, stocks will be selected randomly.)", stocks)
                     indicators = st.multiselect("Indicators", features)
                     
                     submit = st.form_submit_button("Prepare Data")
 
                     if submit:
-
-                        profit_pct = profit_pct/100
-                        stop_pct = stop_pct/100 
 
                         train_data_config = {
                             "raw_file_name": choice,
@@ -489,25 +486,24 @@ if st.session_state.page == "Train New Model":
                             n_estimators = st.number_input("Number of Trees", 50, 2000, 300)
                             max_depth = st.slider("Max Depth", 2, 20, 6)
                             learning_rate = st.number_input("Learning Rate", 0.00001, 1.0, 0.001, format="%.5f")
-                            early_stopping_rounds = st.number_input("Early Stopping Rounds", 1, 100, 10)
+
                         with c2:
                             subsample = st.slider("Subsample", 0.0, 1.0, 0.8)
                             colsample_bytree = st.slider("Colsample Bytree", 0.0, 1.0, 0.8)
-                            random_state = st.number_input("Random State", 0, 100, 42)
+                            early_stopping_rounds = st.number_input("Early Stopping Rounds", 1, 100, 10)
                         
                         params = {
                             "model_type": "xgboost", "n_estimators": n_estimators, "max_depth": max_depth,
                             "subsample": subsample, "colsample_bytree": colsample_bytree,
-                            "learning_rate": learning_rate, "random_state": random_state,
+                            "learning_rate": learning_rate, "random_state": seed,
                             "early_stopping_rounds": early_stopping_rounds
                         }
 
                     # --- RANDOM FOREST ---
                     elif model_type == "Random Forest":
-                        n_estimators = st.number_input("Number of Trees", 50, 2000, 300)
-                        max_depth = st.slider("Max Depth", 2, 20, 6)
-                        random_state = st.number_input("Random State", 0, 100, 42)
-                        params = {"model_type": "rf", "n_estimators": n_estimators, "max_depth": max_depth, "random_state": random_state}
+                        n_estimators = st.number_input("Number of Trees", 50, 300, 100)
+                        max_depth = st.slider("Max Depth", 2, 10, 6)
+                        params = {"model_type": "rf", "n_estimators": n_estimators, "max_depth": max_depth, "random_state": seed}
 
                     # --- LSTM ---
                     elif model_type == "LSTM":
@@ -552,10 +548,10 @@ if st.session_state.page == "Train New Model":
                         c1, c2 = st.columns(2)
                         with c1:
                             lr = st.number_input("Learning Rate", 0.00001, 1.0, 0.001, format="%.5f")
-                            epochs = st.number_input("Epochs", 1, 5000, 50)
+                            epochs = st.number_input("Epochs (Max 10 for Testing)", 1, 10, 5)
                             pos_weight = st.selectbox("Pos Weight (Imbalance handling)", ["True", "False"], index=0)
                         with c2:
-                            patience = st.slider("Early Stopping Patience", 1, 100, 10)
+                            patience = st.slider("Early Stopping Patience", 1, 9, 2)
                             threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.5)
 
                         training_params = {
@@ -783,7 +779,7 @@ elif st.session_state.page == "Test Model":
 
             profit_pct = (c1.number_input("Profit Percentage (%)", 0.1, 100.0, 2.0))/100
             stop_pct = (c1.number_input("Stop Percentage (%)", 0.1, 100.0, 1.0))/100
-            time_horizon = c1.number_input("Time Horizon", 1, 500, 5)
+            time_horizon = c1.number_input("Time Horizon (How long are you willing to hold the stock, if you don't make profit or loss in this period, you will exit the trade.)", 1, 60, 5)
             
             min_t = c2.slider("Min Threshold", 0.01, 0.9, 0.5, 0.01)
             max_t = c2.slider("Max Threshold", 0.1, 1.0, 0.95, 0.01)
@@ -842,7 +838,7 @@ elif st.session_state.page == "Run Simulation":
             c1, c2 = st.columns(2)
             profit_pct = (c1.number_input("Profit Percentage (%)", 0.1, 100.0, 2.0))/100
             stop_pct = (c1.number_input("Stop Percentage (%)", 0.1, 100.0, 1.0))/100
-            time_horizon = c1.number_input("Time Horizon", 1, 500, 5)
+            time_horizon = c1.number_input("Time Horizon (How long are you willing to hold the stock, if you don't make profit or loss in this period, you will exit the trade.)", 1, 60, 5)
             brokerage = (c2.number_input("Brokerage (%)", 0.0, 3.0, 2.0))/100
             investment = c2.number_input("Investment per Stock (₹)", 100.0, 10_000_000.0, 10_000.0)
             threshold = c2.number_input("Threshold", 0.01, 1.0, 0.5)
