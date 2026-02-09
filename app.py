@@ -229,15 +229,8 @@ with info_col:
         test_data_status = st.empty()
         test_data_details = st.container() 
             
-        if not st.session_state.get("backtest", {}).get("data", False):
+        if not st.session_state.get("backtester", {}).get("data", False):
             test_data_status.info("⚪ Waiting for valid test data...")
-
-    with sim_container:
-        sim_status = st.empty()
-        sim_details = st.container() 
-            
-        if not st.session_state.config.get("sim_data_loaded", False):
-            sim_status.info("⚪ Waiting for data...")
 
     if st.session_state.config.get("data_loaded", False):
         data_status.success("✅ Data Active")
@@ -334,15 +327,19 @@ with info_col:
                 rec_chart.metric("Recall", f"{metrics.get('rec', 0):.2%}")
                 auc_chart.metric("AUC", f"{metrics.get('auc', 0):.2%}")
 
-    if st.session_state.get("backtester", False) and st.session_state.get("backtest").data:
-        bt = st.session_state.get("backtest")
+    if st.session_state.get("backtester", {}).get("data", False):
+        bt = st.session_state.get("backtester")
         if st.session_state.get("test_data_valid"):
             test_data_status.info("🟢 Valid Test Data")
         else:
             test_data_status.info("🔴 Invalid Test Data")
 
         test_data_details.write("### Test Data Details")
-        test_data_details.write(f"**Test Data Shape: {bt.data.shape}**")
+        with test_data_details:
+            st.write(f"**Test Data Shape: {bt.data.shape}**")
+            st.write(f"**Time Horizon: {bt.time_horizon}**")
+            st.write(f"**Profit Pct: {bt.profit_pct}**")
+            st.write(f"**Stop Loss Pct: {bt.stop_pct}**")
     
 
 if st.session_state.page == "Train New Model":
