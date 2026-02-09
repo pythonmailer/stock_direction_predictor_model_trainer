@@ -694,3 +694,8 @@ class DataProcessor:
         self.time_horizon = dp.time_horizon
         self.profit_pct = dp.profit_pct
         self.stop_pct = dp.stop_pct
+        self.seq_len = dp.seq_len
+        self.train_pos_count = dp.train_pos_count
+        self.train_neg_count = dp.train_neg_count
+        self.val_pos_count = dp.val_pos_count
+        self.val_neg_count = dp.val_neg_count
