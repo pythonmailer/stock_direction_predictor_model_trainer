@@ -387,7 +387,7 @@ class Backtester:
             "brokerage": self.brokerage,
             "stop_pct": self.stop_pct,
             "investment_per_stock": self.investment_per_stock,
-            "threshhold": self.threshhold,
+            "threshold": self.threshold,
             "model_type": self.model_type,
         })
 
