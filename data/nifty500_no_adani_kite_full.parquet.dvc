@@ -1,0 +1,5 @@
+outs:
+- md5: d51afe4502bb0b5f6e4f94087e83a121
+  size: 37523527
+  hash: md5
+  path: nifty500_no_adani_kite_full.parquet
