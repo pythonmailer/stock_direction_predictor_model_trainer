@@ -54,25 +54,33 @@ def upload_to_s3(local_path: str, s3_key: str):
     except Exception as e:
         logger.warning(f"⚠️ Upload failed (Bucket might be deleted or network down). Continuing... Error: {e}")
 
-def list_s3_files(prefix: str = "") -> list[str]:
+def download_from_s3(s3_key: str, local_path: str):
     """
-    Returns a list of filenames in the S3 bucket.
-    Removes the prefix/folder path, returning ONLY the filename (e.g. 'file.parquet').
+    Safely attempts to download from S3.
+    If S3 is disabled or fails, it checks if we have a local copy.
+    If no local copy exists, THEN it raises an error.
     """
+    if os.path.exists(local_path):
+        logger.info(f"✅ Found local file: {local_path} (Skipping S3 download)")
+        return
+
     if not ENABLE_S3:
-        return []
+        logger.warning(f"⚠️ S3 is disabled. File {local_path} is missing locally, and we can't fetch it.")
+        raise FileNotFoundError(f"File {local_path} not found and S3 is disabled.")
 
     s3 = boto3.client('s3')
     try:
-        response = s3.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
-        if 'Contents' in response:
-            # os.path.basename strips "data/" and returns just "nifty500.parquet"
-            return [os.path.basename(obj['Key']) for obj in response['Contents'] if not obj['Key'].endswith('/')]
-        else:
-            return []
+        logger.info(f"⬇️ Attempting download from {BUCKET_NAME}...")
+        
+        # --- NEW ADDITION: Create the folder if it doesn't exist ---
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        # -----------------------------------------------------------
+
+        s3.download_file(BUCKET_NAME, s3_key, local_path)
+        logger.info("✅ Download complete.")
     except Exception as e:
-        logger.error(f"❌ Failed to list S3 files: {e}")
-        return []
+        logger.error(f"❌ S3 Download failed: {e}")
+        raise e
 
 def set_global_seed(seed: int):
     """
