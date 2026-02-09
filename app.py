@@ -284,7 +284,7 @@ with info_col:
             metrics_text.write("✅ Training Complete")
             progress_bar.progress(1.0)
 
-            if model.get("model_type").lower() in ["lstm", "transformer"]:
+            if model.get("model_type", "").lower() in ["lstm", "transformer"]:
                 with metrics_chart:
                     tab1, tab2 = st.tabs(["📉 Loss & Acc", "📊 Advanced Metrics"])
                                             
@@ -354,6 +354,7 @@ if st.session_state.page == "Train New Model":
     with main_col:
         st.title("📂 Train Data Preparation")
         st.session_state.new_data = st.session_state.get("new_data", False)
+        st.session_state.save_data = st.session_state.get("save_data", False)
 
         load_option = st.selectbox(
             "How do you want to load data?:", 
@@ -455,7 +456,7 @@ if st.session_state.page == "Train New Model":
                         st.session_state.config["data_loaded"] = True
                         st.rerun()
 
-            if st.session_state.new_data and st.session_state.valid_data and st.button("Save Data"):
+            if st.session_state.new_data and st.session_state.valid_data and not st.session_state.save_data and st.button("Save Data"):
                 with mlflow.start_run(run_name=f"Train_Data_Prep_{st.session_state.get('run_id')}") as run:   
                     mlflow.set_tag("author", author)
                     mlflow.set_tag("purpose", purpose)
@@ -464,9 +465,10 @@ if st.session_state.page == "Train New Model":
                     mlflow.end_run()
                 st.toast("Data saved to MLFlow successfully!", icon="✅")
                 st.session_state.new_data = False
+                st.session_state.save_data = True
                 st.rerun() 
         
-        if st.session_state.valid_data:
+        if st.session_state.valid_data and st.session_state.save_data:
 
             st.divider()
             st.title("🧠 Model Building")
@@ -694,10 +696,10 @@ if st.session_state.page == "Train New Model":
                                     temp_params = params.copy()
                                     temp_params.pop("model_type")
 
-                                    model, hp = build_model(model_type, feature_cols=dp.feature_cols, **temp_params)
+                                    model, hp = build_model(params["model_type"], feature_cols=dp.feature_cols, **temp_params)
                                     mlflow.log_params(hp)
 
-                                    trained_model, result = train_ml_model(model, train_X, train_y, val_X, val_y, model_type)
+                                    trained_model, result = train_ml_model(model, train_X, train_y, val_X, val_y, params["model_type"])
                                     mlflow.log_metrics(result)
                                 
                             st.session_state.training_run_id = training_run.info.run_id 
@@ -755,7 +757,7 @@ elif st.session_state.page == "Test Model":
         if model_choice == "Yes":
             data_files = list_s3_files("data")
             choice = st.selectbox("Pick data file:", data_files, index=None)
-            
+
             if choice:
                 download_from_s3("data/" + choice, "data/" + choice)
 
