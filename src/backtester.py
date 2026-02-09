@@ -54,11 +54,6 @@ class Backtester:
         options = list(self.run_dict.keys())
         return options
 
-    def load_using_dp(self, dp, model):
-        self.dp = dp
-        self.dp.mode = "test"
-        self.model = model
-
     def load_using_mlrun_id(self, training_run_id):
         training_run = mlflow.get_run(training_run_id)
         self.dp = DataProcessor(mode="test")

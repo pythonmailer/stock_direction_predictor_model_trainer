@@ -8,6 +8,7 @@ from src import (
     set_global_seed, download_from_s3, upload_to_s3, list_s3_files
 )
 from datetime import datetime
+import copy
 import polars as pl
 import os
 import torch
@@ -730,8 +731,7 @@ elif st.session_state.page == "Test Model":
                 ["Yes", "No"], index=None) 
 
             if model_choice == "Yes":
-                bt.dp = st.session_state.config["train_data_dp"]
-                bt.dp.mode = "test"
+                bt.dp.load_for_test(st.session_state.config["train_data_dp"])
                 bt.model = st.session_state.config["trained_model"]
                 bt.model_type = st.session_state.config["model"]["model_type"]
         
@@ -742,6 +742,7 @@ elif st.session_state.page == "Test Model":
             if selected_model:
                 bt.load_using_mlrun_id(bt.run_dict[selected_model])
                 st.session_state.config["train_data_dp"] = bt.dp
+                bt.dp.load_for_test(bt.dp)
                 st.session_state.config["data_loaded"] = True
                 st.session_state.config["trained_model"] = bt.model
                 model = {

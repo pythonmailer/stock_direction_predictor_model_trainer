@@ -685,3 +685,12 @@ class DataProcessor:
         if self.df.height == 0 or self.df.width == 0:
             return False
         return self.df.select(pl.all().null_count().sum()).sum_horizontal().item() > 0        
+
+    def load_for_test(self, dp):
+        self.mode = "test"
+        self.scaler = dp.scaler
+        self.feature_cols = dp.feature_cols
+        self.stocks = dp.stocks
+        self.time_horizon = dp.time_horizon
+        self.profit_pct = dp.profit_pct
+        self.stop_pct = dp.stop_pct
