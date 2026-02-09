@@ -688,7 +688,7 @@ class DataProcessor:
 
     def load_for_test(self, dp):
         self.mode = "test"
-        self.scaler = dp.scaler
+        self.scaler = dp.scaler.clone() if dp.scaler is not None else None
         self.feature_cols = dp.feature_cols
         self.stocks = dp.stocks
         self.time_horizon = dp.time_horizon

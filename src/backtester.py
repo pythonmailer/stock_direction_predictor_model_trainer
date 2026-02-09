@@ -56,8 +56,8 @@ class Backtester:
 
     def load_using_mlrun_id(self, training_run_id):
         training_run = mlflow.get_run(training_run_id)
-        self.dp = DataProcessor(mode="test")
-        self.dp.load_config(training_run.data.tags['train_data_run_id'])
+        temp_dp = DataProcessor(mode="test")
+        temp_dp.load_config(training_run.data.tags['train_data_run_id'])
         self.model_type = training_run.data.params['model_type']
         model_id = training_run.outputs.model_outputs[0].model_id
         self.training_params = training_run.data.params
@@ -69,6 +69,8 @@ class Backtester:
             self.model = mlflow.xgboost.load_model(f"models:/{model_id}")
         else:
             self.model = mlflow.sklearn.load_model(f"models:/{model_id}")
+        
+        return temp_dp
         
 
     def load_model(self):

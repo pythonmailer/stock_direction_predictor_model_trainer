@@ -740,15 +740,15 @@ elif st.session_state.page == "Test Model":
             selected_model = st.selectbox("Select Model", bt.get_all_models(author, "model_training"), index=None)
 
             if selected_model:
-                bt.load_using_mlrun_id(bt.run_dict[selected_model])
-                st.session_state.config["train_data_dp"] = bt.dp
-                bt.dp.load_for_test(bt.dp)
+                st.session_state.config["train_data_dp"] = bt.load_using_mlrun_id(bt.run_dict[selected_model])
+                bt.dp.load_for_test(st.session_state.config["train_data_dp"])
                 st.session_state.config["data_loaded"] = True
                 st.session_state.config["trained_model"] = bt.model
                 model = {
                     "model_type": bt.model_type,
                     "params": bt.training_params
                 }
+                st.session_state.config["backtester"] = bt
                 st.session_state.config["model"] = model
                 st.session_state.config["metrics"] = bt.training_metrics
                 
