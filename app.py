@@ -199,9 +199,6 @@ with info_col:
 
     st.subheader("Test Data Monitor")
     test_data_container = st.container()
-
-    st.subheader("Simulation Monitor")
-    sim_container = st.container()
     
     # Create Placeholders
     with data_container:
