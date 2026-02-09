@@ -196,9 +196,6 @@ with info_col:
 
     st.subheader("Training Monitor")
     metrics_container = st.container()
-
-    st.subheader("Test Data Monitor")
-    test_data_container = st.container()
     
     # Create Placeholders
     with data_container:
