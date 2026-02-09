@@ -222,13 +222,6 @@ with info_col:
         metrics_chart = st.container()
         metrics_text.info("⚪ Waiting for training...")
 
-    with test_data_container:
-        test_data_status = st.empty()
-        test_data_details = st.container() 
-            
-        if not st.session_state.get("backtester", {}).get("data", False):
-            test_data_status.info("⚪ Waiting for valid test data...")
-
     if st.session_state.config.get("data_loaded", False):
         data_status.success("✅ Data Active")
         with data_details:
@@ -323,21 +316,6 @@ with info_col:
                 prec_chart.metric("Precision", f"{metrics.get('prec', 0):.2%}")
                 rec_chart.metric("Recall", f"{metrics.get('rec', 0):.2%}")
                 auc_chart.metric("AUC", f"{metrics.get('auc', 0):.2%}")
-
-    if st.session_state.get("backtester", {}).get("data", False):
-        bt = st.session_state.get("backtester")
-        if st.session_state.get("test_data_valid"):
-            test_data_status.info("🟢 Valid Test Data")
-        else:
-            test_data_status.info("🔴 Invalid Test Data")
-
-        test_data_details.write("### Test Data Details")
-        with test_data_details:
-            st.write(f"**Test Data Shape: {bt.data.shape}**")
-            st.write(f"**Time Horizon: {bt.time_horizon}**")
-            st.write(f"**Profit Pct: {bt.profit_pct}**")
-            st.write(f"**Stop Loss Pct: {bt.stop_pct}**")
-    
 
 if st.session_state.page == "Train New Model":
 
