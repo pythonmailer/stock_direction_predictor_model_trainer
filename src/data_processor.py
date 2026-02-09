@@ -5,7 +5,7 @@ import mlflow
 import numpy as np
 import polars as pl
 from datetime import datetime
-from .utils import get_logger, save_json, load_json
+from .utils import get_logger, save_json, load_json, upload_to_s3, download_from_s3
 from torch.utils.data import DataLoader, TensorDataset
 from numpy.lib.stride_tricks import sliding_window_view
 
@@ -446,10 +446,16 @@ class DataProcessor:
             test_data_path = os.path.join(base_path, "test")
             os.makedirs(test_data_path, exist_ok=True)
 
+            temp_test_data_filename = f"test_data.parquet"
             test_data_filename = f"test_{run_id}.parquet"
+
             test_data_full_path = os.path.join(test_data_path, test_data_filename)
-            self.df.write_parquet(test_data_full_path)
-            self.logger.info(f"Test Data Saved to {test_data_full_path}")
+            temp_test_data_full_path = os.path.join(test_data_path, temp_test_data_filename)
+
+            self.df.write_parquet(temp_test_data_full_path)
+            upload_to_s3(temp_test_data_full_path, test_data_full_path)
+
+            self.logger.info(f"Test Data Saved to {test_data_full_path} in S3.")
 
             config = {
                 "data_shape": self.df.shape,
@@ -486,17 +492,29 @@ class DataProcessor:
 
         # Save data
         train_data_full_path = os.path.join(paths["train"], train_data_name)
-        self.train.write_parquet(train_data_full_path)
-        self.logger.info(f"Train Data Saved to {train_data_full_path}")
+        temp_train_data_full_path = os.path.join(paths["train"], "train_data.parquet")
+
+        self.train.write_parquet(temp_train_data_full_path)
+        upload_to_s3(temp_train_data_full_path, train_data_full_path)
+
+        self.logger.info(f"Train Data Saved to {train_data_full_path} in S3.")
 
         val_data_full_path = os.path.join(paths["val"], val_data_name)
-        self.val.write_parquet(val_data_full_path)
-        self.logger.info(f"Validation Data Saved to {val_data_full_path}")
+        temp_val_data_full_path = os.path.join(paths["val"], "val_data.parquet")
+
+        self.val.write_parquet(temp_val_data_full_path)
+        upload_to_s3(temp_val_data_full_path, val_data_full_path)
+
+        self.logger.info(f"Validation Data Saved to {val_data_full_path} in S3.")
 
         if self.scaler is not None:
             scaler_full_path = os.path.join(paths["scaler"], scaler_file_name)
-            self.scaler.write_parquet(scaler_full_path)
-            self.logger.info(f"Scaler Saved to {scaler_full_path}")
+            temp_scaler_full_path = os.path.join(paths["scaler"], "scaler.parquet")
+
+            self.scaler.write_parquet(temp_scaler_full_path)
+            upload_to_s3(temp_scaler_full_path, scaler_full_path)
+
+            self.logger.info(f"Scaler Saved to {scaler_full_path} in S3.")
         else:
             scaler_full_path = None
 
@@ -544,9 +562,10 @@ class DataProcessor:
         metadata = mlflow.artifacts.load_dict(artifact_uri)
 
         try:
-            self.scaler = pl.read_parquet(metadata["scaler_path"])
+            download_from_s3(metadata["scaler_path"], "artifacts/data/scalers/scaler.parquet")
+            self.scaler = pl.read_parquet("artifacts/data/scalers/scaler.parquet")
         except FileNotFoundError:
-            self.logger.error(f"Scaler file not present at {metadata['scaler_path']}")
+            self.logger.error(f"Scaler file not present at {metadata['scaler_path']} in S3.")
             raise
 
         self.feature_cols = metadata["feature_cols"]
@@ -565,17 +584,18 @@ class DataProcessor:
         self.full_path = config["raw_data_path"]
 
         if self.mode == "train":
-
             try:
-                self.train = pl.read_parquet(metadata["train_data_path"])
+                download_from_s3(metadata["train_data_path"], "artifacts/data/train/train_data.parquet")
+                self.train = pl.read_parquet("artifacts/data/train/train_data.parquet")
             except FileNotFoundError:
-                self.logger.error(f"Train Data file not present at {metadata['train_data_path']}")
+                self.logger.error(f"Train Data file not present at {metadata['train_data_path']} in S3.")
                 raise
             
             try:
-                self.val = pl.read_parquet(metadata["val_data_path"])
+                download_from_s3(metadata["val_data_path"], "artifacts/data/val/val_data.parquet")
+                self.val = pl.read_parquet("artifacts/data/val/val_data.parquet")
             except FileNotFoundError:
-                self.logger.error(f"Validation Data file not present at {metadata['val_data_path']}")
+                self.logger.error(f"Validation Data file not present at {metadata['val_data_path']} in S3.")
                 raise
 
         return config

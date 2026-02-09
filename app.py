@@ -5,7 +5,7 @@ import uuid
 from src import (
     DataProcessor, DeepLearningTrainer, Backtester, train_ml_model, 
     build_model, save_json, setup_logging, get_files_in_dir, is_parquet_file,
-    set_global_seed
+    set_global_seed, download_from_s3, upload_to_s3, list_s3_files
 )
 from datetime import datetime
 import polars as pl
@@ -388,8 +388,9 @@ if st.session_state.page == "Train New Model":
 
         elif load_option == "Load from S3":
             purpose = "train_data_prep"
-            data_files = get_files_in_dir("data")
+            data_files = list_s3_files("data")
             choice = st.selectbox("Pick data file:", data_files, index=None)
+            download_from_s3("data/" + choice, "data/" + choice)
 
             if choice and not is_parquet_file("data/" + choice):
                 st.toast("Selected file is not a parquet file!", icon="❌")

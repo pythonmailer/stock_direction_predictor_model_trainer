@@ -9,7 +9,7 @@ from typing import Dict, Tuple
 from sklearn.ensemble import RandomForestClassifier
 import mlflow.xgboost
 import xgboost as xgb
-from .utils import EarlyStopper, get_logger
+from .utils import EarlyStopper, get_logger, upload_to_s3
 from sklearn.metrics import (
     accuracy_score, 
     precision_score, 
@@ -83,6 +83,7 @@ class DeepLearningTrainer:
                 metrics["loss"] = val_loss
                 metrics["at_epoch"] = epoch + 1
                 self._save_temp_checkpoint()
+                upload_to_s3(self.temp_checkpoint_path, "artifacts/trained_models/temp_best.pth")
                 self.logger.info(f"New best found ({best_prec:.2%}) -> Saved!")
 
             # 3. Early Stopping

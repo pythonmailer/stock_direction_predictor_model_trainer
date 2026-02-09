@@ -8,7 +8,70 @@ from datetime import datetime, date
 import random
 import numpy as np
 import torch
+import boto3
+from botocore.exceptions import NoCredentialsError, ClientError
 
+BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "stock-prediction-data-chirag")
+ENABLE_S3 = os.getenv("ENABLE_S3", "False").lower() == "true"
+
+def download_from_s3(s3_key: str, local_path: str):
+    """
+    Safely attempts to download from S3.
+    If S3 is disabled or fails, it checks if we have a local copy.
+    If no local copy exists, THEN it raises an error.
+    """
+    if os.path.exists(local_path):
+        logger.info(f"✅ Found local file: {local_path} (Skipping S3 download)")
+        return
+
+    if not ENABLE_S3:
+        logger.warning(f"⚠️ S3 is disabled. File {local_path} is missing locally, and we can't fetch it.")
+        raise FileNotFoundError(f"File {local_path} not found and S3 is disabled.")
+
+    s3 = boto3.client('s3')
+    try:
+        logger.info(f"⬇️ Attempting download from {BUCKET_NAME}...")
+        s3.download_file(BUCKET_NAME, s3_key, local_path)
+        logger.info("✅ Download complete.")
+    except Exception as e:
+        logger.error(f"❌ S3 Download failed: {e}")
+        raise e
+
+def upload_to_s3(local_path: str, s3_key: str):
+    """
+    Safely attempts to upload to S3.
+    If it fails (bucket deleted, no wifi), it LOGS a warning but DOES NOT CRASH.
+    """
+    if not ENABLE_S3:
+        logger.info("ℹ️ S3 is disabled. Skipping upload.")
+        return
+
+    s3 = boto3.client('s3')
+    try:
+        logger.info(f"⬆️ Uploading to {BUCKET_NAME}...")
+        s3.upload_file(local_path, BUCKET_NAME, s3_key)
+        logger.info("✅ Upload complete.")
+    except Exception as e:
+        logger.warning(f"⚠️ Upload failed (Bucket might be deleted or network down). Continuing... Error: {e}")
+
+def list_s3_files(prefix: str = "") -> List[str]:
+    """
+    Returns a list of filenames in the S3 bucket.
+    """
+    if not ENABLE_S3:
+        return []
+
+    s3 = boto3.client('s3')
+    try:
+        response = s3.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
+        # Extract filenames from the response
+        if 'Contents' in response:
+            return [obj['Key'] for obj in response['Contents'] if not obj['Key'].endswith('/')]
+        else:
+            return []
+    except Exception as e:
+        logger.error(f"❌ Failed to list S3 files: {e}")
+        return []
 
 def set_global_seed(seed: int):
     """
