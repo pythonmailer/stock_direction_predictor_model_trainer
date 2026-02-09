@@ -1,5 +1,5 @@
 import polars as pl
-from .utils import get_logger, load_json, save_json
+from .utils import get_logger, load_json, save_json, upload_to_s3
 from .data_processor import DataProcessor
 from torch.utils.data import DataLoader, TensorDataset
 from .builder import build_model
@@ -379,8 +379,11 @@ class Backtester:
         os.makedirs(df_pnl_path, exist_ok=True)
         df_pnl_filename = f"{run_id}_df_pnl.parquet"
         df_pnl_full_path = os.path.join(df_pnl_path, df_pnl_filename)
-        self.df_pnl.write_parquet(df_pnl_full_path)
-        self.logger.info(f"Saved PnL Data to {df_pnl_full_path}")
+        temp_df_pnl_full_path = os.path.join(df_pnl_path, "df_pnl.parquet")
+
+        self.df_pnl.write_parquet(temp_df_pnl_full_path)
+        upload_to_s3(temp_df_pnl_full_path, df_pnl_full_path)
+        self.logger.info(f"Saved PnL Data to {df_pnl_full_path} in S3.")
 
         mlflow.log_params({
             "created_at": run_id,

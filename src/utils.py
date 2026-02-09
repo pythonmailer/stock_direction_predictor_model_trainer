@@ -54,9 +54,10 @@ def upload_to_s3(local_path: str, s3_key: str):
     except Exception as e:
         logger.warning(f"⚠️ Upload failed (Bucket might be deleted or network down). Continuing... Error: {e}")
 
-def list_s3_files(prefix: str = "") -> List[str]:
+def list_s3_files(prefix: str = "") -> list[str]:
     """
     Returns a list of filenames in the S3 bucket.
+    Removes the prefix/folder path, returning ONLY the filename (e.g. 'file.parquet').
     """
     if not ENABLE_S3:
         return []
@@ -64,9 +65,9 @@ def list_s3_files(prefix: str = "") -> List[str]:
     s3 = boto3.client('s3')
     try:
         response = s3.list_objects_v2(Bucket=BUCKET_NAME, Prefix=prefix)
-        # Extract filenames from the response
         if 'Contents' in response:
-            return [obj['Key'] for obj in response['Contents'] if not obj['Key'].endswith('/')]
+            # os.path.basename strips "data/" and returns just "nifty500.parquet"
+            return [os.path.basename(obj['Key']) for obj in response['Contents'] if not obj['Key'].endswith('/')]
         else:
             return []
     except Exception as e:
