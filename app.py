@@ -390,7 +390,8 @@ if st.session_state.page == "Train New Model":
             purpose = "train_data_prep"
             data_files = list_s3_files("data")
             choice = st.selectbox("Pick data file:", data_files, index=None)
-            download_from_s3("data/" + choice, "data/" + choice)
+            if choice:
+                download_from_s3("data/" + choice, "data/" + choice)
 
             if choice and not is_parquet_file("data/" + choice):
                 st.toast("Selected file is not a parquet file!", icon="❌")
