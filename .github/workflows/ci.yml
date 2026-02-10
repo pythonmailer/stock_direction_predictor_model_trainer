@@ -31,17 +31,12 @@ jobs:
 
       - name: Deploy to AWS
         run: |
-          # 1. Create the key file from the Secret
           echo "${{ secrets.EC2_SSH_KEY }}" > stock_key.pem
-
-          # 2. Fix permissions (The "Too Open" error fix!)
           chmod 400 stock_key.pem
-
-          # 3. Connect and Deploy
-          # We add -o StrictHostKeyChecking=no to stop it from asking "Are you sure?"
+          
+          # Notice the hyphen (-) below in docker-compose
           ssh -o StrictHostKeyChecking=no -i stock_key.pem ubuntu@3.110.66.195 "
             cd stock_direction_predictor_model_trainer &&
             git pull &&
-            docker compose down &&
-            docker compose up -d --build
-          "
+            docker-compose down &&
+            docker-compose up -d --build"
