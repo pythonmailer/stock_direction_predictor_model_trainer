@@ -33,10 +33,13 @@ jobs:
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > stock_key.pem
           chmod 400 stock_key.pem
-
+          
           ssh -o StrictHostKeyChecking=no -i stock_key.pem ubuntu@3.110.66.195 "
             cd stock_direction_predictor_model_trainer &&
             git pull &&
+            echo 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' > .env &&
+            echo 'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' >> .env &&
+            echo 'AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}' >> .env &&
             docker-compose down &&
             docker-compose up -d --build
           "
