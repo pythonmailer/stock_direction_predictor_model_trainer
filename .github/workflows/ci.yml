@@ -33,10 +33,10 @@ jobs:
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > stock_key.pem
           chmod 400 stock_key.pem
-          
-          # Notice the hyphen (-) below in docker-compose
+
           ssh -o StrictHostKeyChecking=no -i stock_key.pem ubuntu@3.110.66.195 "
             cd stock_direction_predictor_model_trainer &&
             git pull &&
             docker-compose down &&
-            docker-compose up -d --build"
+            docker-compose up -d --build
+          "
