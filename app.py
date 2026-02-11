@@ -73,7 +73,19 @@ setup_logging()
 
 def init_dagshub():
     if not st.session_state.get("dagshub_initialized", False):
+        token = os.getenv("DAGSHUB_USER_TOKEN")
+        
+        if not token:
+            st.error("❌ Critical Error: DAGSHUB_USER_TOKEN is missing from environment variables.")
+            st.stop()
+        try:
+            dagshub.auth.add_app_token(token)
+        except Exception as e:
+            st.error(f"❌ Failed to authenticate with DagsHub: {e}")
+            st.stop()
+
         dagshub.init(repo_owner='pythonmailer156', repo_name='stock_direction_predictor_model_trainer', mlflow=True)
+
         mlflow.set_experiment("Stock_Direction_Predictor")
         st.session_state["dagshub_initialized"] = True
 
