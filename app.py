@@ -423,6 +423,7 @@ if st.session_state.page == "Train New Model":
                             save_config("train_data_mlflow_run_id", existing_run_id)
                             config = dp.load_config(existing_run_id)
                             st.session_state.valid_data = True
+                            st.session_state.save_data = True
 
                         else:
                             data_status.info("Loading data from file...")             
