@@ -34,7 +34,7 @@ jobs:
           echo "${{ secrets.EC2_SSH_KEY }}" > stock_key.pem
           chmod 400 stock_key.pem
           
-          ssh -o StrictHostKeyChecking=no -i stock_key.pem ubuntu@3.110.66.195 "
+          ssh -o StrictHostKeyChecking=no -i stock_key.pem ubuntu@3.108.8.150 "
             cd stock_direction_predictor_model_trainer &&
             git pull &&
             echo 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' > .env &&
