@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 📈 AlphaPredict: End-to-End MLOps Stock Direction Predictor Live App / Demo: https://bit.ly/4qAJ56D
 
 AlphaPredict is a full-stack, production-ready Machine Learning system designed to predict short-term stock price direction. Rather than predicting absolute prices (which is heavily prone to noise), this system frames trading as a binary classification problem using the Triple-Barrier Method.
@@ -132,4 +131,3 @@ Class Imbalance in Financial Data:
 Problem: Because the market doesn't hit a 3% profit target in 5 days very often, the dataset was heavily skewed toward 0 (No Trade).
 
 Fix: Programmatically calculated the negative-to-positive ratio per training batch and injected it into the Transformer bias initialization init_bias = -np.log(ratio_val) and the PyTorch Loss function pos_weight, preventing the model from just predicting 0 every time.
->>>>>>> ea5d604bca3267593dbe2ec257c11311dadcb1d0
