@@ -716,6 +716,7 @@ elif st.session_state.page == "Test Model":
                 bt.dp.load_for_test(st.session_state.config["train_data_dp"])
                 bt.model = st.session_state.config["trained_model"]
                 bt.model_type = st.session_state.config["model"]["model_type"]
+                st.session_state.config["backtester"] = bt
         
         if model_choice == "No" or st.session_state.config.get("trained_model", None) is None:
             selected_model = None
