@@ -127,7 +127,7 @@ class Backtester:
 
         probs_arr = None
 
-        if self.model_type in ["rf", "xgboost"]:
+        if self.model_type.lower() in ["rf", "xgboost", "random forest", "xgb"]:
 
             X_input = self.dp.reshape_for_ml(final_data)
             
